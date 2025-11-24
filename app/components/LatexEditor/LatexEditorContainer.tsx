@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Editor } from '@tiptap/react';
 import SharedToolbar from './SharedToolbar';
 import FileTreeSidebar from './FileTreeSidebar';
-import CodeEditorPane from './CodeEditorPane';
+import CodeEditorPane, { CodeEditorRef } from './CodeEditorPane';
 import VisualEditorPane from './VisualEditorPane';
 import PdfPreviewPane from './PdfPreviewPane';
 import { User } from '@/app/types';
@@ -287,6 +287,7 @@ E = mc^2
         ]
   );
   const [visualEditor, setVisualEditor] = useState<Editor | null>(null);
+  const codeEditorRef = useRef<CodeEditorRef>(null);
   const [showNameDialog, setShowNameDialog] = useState<boolean>(!!initialFromBpmn);
   const [newFileName, setNewFileName] = useState<string>(
     initialFromBpmn ? initialFileName : initialFileName
@@ -555,55 +556,129 @@ E = mc^2
     );
   };
 
+  // Run command on visual editor (TipTap)
   const runVisualCommand = (command: (editor: Editor) => void) => {
-    if (mode !== 'visual' || !visualEditor) return;
+    if (!visualEditor) return;
     command(visualEditor);
   };
 
+  // Run command on code editor (CodeMirror)
+  const runCodeCommand = (action: (ref: CodeEditorRef) => void) => {
+    if (!codeEditorRef.current) return;
+    action(codeEditorRef.current);
+  };
+
   const handleBold = () => {
-    runVisualCommand(editor => editor.chain().focus().toggleBold().run());
+    if (mode === 'code') {
+      runCodeCommand(ref => ref.wrapSelection('\\textbf{', '}'));
+    } else {
+      runVisualCommand(editor => editor.chain().focus().toggleBold().run());
+    }
   };
 
   const handleItalic = () => {
-    runVisualCommand(editor => editor.chain().focus().toggleItalic().run());
+    if (mode === 'code') {
+      runCodeCommand(ref => ref.wrapSelection('\\textit{', '}'));
+    } else {
+      runVisualCommand(editor => editor.chain().focus().toggleItalic().run());
+    }
   };
 
   const handleUnderline = () => {
-    runVisualCommand(editor => editor.chain().focus().toggleUnderline().run());
+    if (mode === 'code') {
+      runCodeCommand(ref => ref.wrapSelection('\\underline{', '}'));
+    } else {
+      runVisualCommand(editor => editor.chain().focus().toggleUnderline().run());
+    }
   };
 
   const handleInsertMath = () => {
-    runVisualCommand(editor => {
-      // Insert a placeholder inline math expression; user can edit it.
-      editor
-        .chain()
-        .focus()
-        .insertContent('<em>your\\_formula\\_here</em>')
-        .run();
-    });
+    if (mode === 'code') {
+      runCodeCommand(ref => {
+        const selection = ref.getSelection();
+        if (selection) {
+          // Wrap selection in math delimiters
+          ref.wrapSelection('\\[', '\\]');
+        } else {
+          // Insert placeholder math
+          ref.insertText('\\[\n  E = mc^2\n\\]');
+        }
+      });
+    } else {
+      runVisualCommand(editor => {
+        editor
+          .chain()
+          .focus()
+          .insertContent('<em>E = mc^2</em>')
+          .run();
+      });
+    }
   };
 
   const handleInsertTable = () => {
-    runVisualCommand(editor => {
-      // Insert a basic 2x2 table with header row.
-      // Table commands are provided by the Table extension.
-      (editor.chain().focus() as any).insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run();
-    });
+    if (mode === 'code') {
+      runCodeCommand(ref => {
+        const tableLatex = `\\begin{tabular}{|l|l|}
+\\hline
+Header 1 & Header 2 \\\\
+\\hline
+Cell 1 & Cell 2 \\\\
+\\hline
+Cell 3 & Cell 4 \\\\
+\\hline
+\\end{tabular}`;
+        ref.insertText(tableLatex);
+      });
+    } else {
+      runVisualCommand(editor => {
+        (editor.chain().focus() as any).insertTable({ rows: 3, cols: 2, withHeaderRow: true }).run();
+      });
+    }
   };
 
   const handleInsertImage = () => {
-    if (mode !== 'visual' || !visualEditor) return;
-    const url = window.prompt('Enter image URL');
+    const url = window.prompt('Enter image URL or filename');
     if (!url) return;
-    runVisualCommand(editor => {
-      (editor.chain().focus() as any).setImage({ src: url }).run();
-    });
+
+    if (mode === 'code') {
+      runCodeCommand(ref => {
+        const imageLatex = `\\begin{figure}[h]
+\\centering
+\\includegraphics[width=0.8\\textwidth]{${url}}
+\\caption{Your caption here}
+\\label{fig:label}
+\\end{figure}`;
+        ref.insertText(imageLatex);
+      });
+    } else {
+      runVisualCommand(editor => {
+        (editor.chain().focus() as any).setImage({ src: url }).run();
+      });
+    }
   };
 
   const handleToggleList = () => {
-    runVisualCommand(editor => {
-      editor.chain().focus().toggleBulletList().run();
-    });
+    if (mode === 'code') {
+      runCodeCommand(ref => {
+        const selection = ref.getSelection();
+        if (selection) {
+          // Convert selected lines to list items
+          const items = selection.split('\n').map(line => `  \\item ${line}`).join('\n');
+          ref.wrapSelection('\\begin{itemize}\n', '\n\\end{itemize}');
+        } else {
+          const listLatex = `\\begin{itemize}
+  \\item Item 1
+  \\item Item 2
+  \\item Item 3
+\\end{itemize}`;
+          ref.insertText(listLatex);
+        }
+      });
+    } else {
+      runVisualCommand(editor => {
+        editor.chain().focus().toggleBulletList().run();
+      });
+    }
   };
 
   const handleDownloadPdf = () => {
@@ -736,6 +811,7 @@ E = mc^2
         <div className="flex-1 flex flex-col overflow-hidden">
           {mode === 'code' ? (
             <CodeEditorPane
+              ref={codeEditorRef}
               content={latexContent}
               onChange={handleContentChange}
             />
