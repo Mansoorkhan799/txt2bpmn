@@ -14,6 +14,59 @@ interface CompileRequest {
   files?: Record<string, string>;
 }
 
+// External LaTeX API compilation (for serverless environments like Vercel)
+async function compileWithExternalAPI(latex: string): Promise<{ success: boolean; pdf?: string; log: string }> {
+  try {
+    // Using latex.ytotech.com - a free LaTeX compilation API
+    const response = await fetch('https://latex.ytotech.com/builds/sync', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        compiler: 'pdflatex',
+        resources: [
+          {
+            main: true,
+            content: latex,
+          },
+        ],
+      }),
+    });
+
+    if (response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      
+      if (contentType.includes('application/pdf')) {
+        const arrayBuffer = await response.arrayBuffer();
+        const pdfBase64 = Buffer.from(arrayBuffer).toString('base64');
+        return {
+          success: true,
+          pdf: `data:application/pdf;base64,${pdfBase64}`,
+          log: 'Compiled successfully using external LaTeX API.',
+        };
+      } else {
+        const text = await response.text();
+        return {
+          success: false,
+          log: `External API returned non-PDF response: ${text}`,
+        };
+      }
+    } else {
+      const errorText = await response.text();
+      return {
+        success: false,
+        log: `External LaTeX API error (${response.status}): ${errorText}`,
+      };
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      log: `External API request failed: ${error.message}`,
+    };
+  }
+}
+
 export async function POST(request: NextRequest) {
   const tempDir = join(tmpdir(), `latex-${randomUUID()}`);
   
@@ -32,21 +85,6 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Create temp directory
-    await mkdir(tempDir, { recursive: true });
-
-    // Write main file
-    const mainPath = join(tempDir, resolvedMainFile);
-    await writeFile(mainPath, latex, 'utf-8');
-
-    // Write additional files (for \input{} and \include{} support)
-    for (const [filename, content] of Object.entries(files)) {
-      if (filename && filename !== resolvedMainFile) {
-        const filePath = join(tempDir, filename);
-        await writeFile(filePath, content, 'utf-8');
-      }
-    }
-
     // Try Docker compilation first
     let compilationOutput = '';
     let pdfBuffer: Buffer | null = null;
@@ -55,6 +93,21 @@ export async function POST(request: NextRequest) {
     try {
       // Check if Docker is available
       await execAsync('docker --version', { timeout: 5000 });
+      
+      // Create temp directory
+      await mkdir(tempDir, { recursive: true });
+
+      // Write main file
+      const mainPath = join(tempDir, resolvedMainFile);
+      await writeFile(mainPath, latex, 'utf-8');
+
+      // Write additional files (for \input{} and \include{} support)
+      for (const [filename, content] of Object.entries(files)) {
+        if (filename && filename !== resolvedMainFile) {
+          const filePath = join(tempDir, filename);
+          await writeFile(filePath, content, 'utf-8');
+        }
+      }
       
       // Compile using Docker
       const dockerCommand = `docker run --rm \
@@ -71,18 +124,32 @@ export async function POST(request: NextRequest) {
       compilationOutput = stdout + '\n' + stderr;
       
       // Read generated PDF
-      // Use the resolved main file name (with fallback) to avoid undefined issues
       const pdfPath = join(tempDir, resolvedMainFile.replace('.tex', '.pdf'));
       pdfBuffer = await readFile(pdfPath);
       compilationSuccess = true;
 
     } catch (dockerError: any) {
-      console.log('Docker compilation failed, trying fallback method:', dockerError.message);
+      console.log('Docker compilation failed, trying local pdflatex:', dockerError.message);
       
       // Fallback: Try local pdflatex if available
       try {
         // Check if pdflatex is available locally
         await execAsync('pdflatex --version', { timeout: 5000 });
+        
+        // Create temp directory if not exists
+        await mkdir(tempDir, { recursive: true });
+
+        // Write main file
+        const mainPath = join(tempDir, resolvedMainFile);
+        await writeFile(mainPath, latex, 'utf-8');
+
+        // Write additional files
+        for (const [filename, content] of Object.entries(files)) {
+          if (filename && filename !== resolvedMainFile) {
+            const filePath = join(tempDir, filename);
+            await writeFile(filePath, content, 'utf-8');
+          }
+        }
         
         const { stdout, stderr } = await execAsync(
           `cd "${tempDir}" && pdflatex -interaction=nonstopmode -halt-on-error "${resolvedMainFile}" && pdflatex -interaction=nonstopmode -halt-on-error "${resolvedMainFile}"`,
@@ -95,19 +162,24 @@ export async function POST(request: NextRequest) {
         compilationOutput = stdout + '\n' + stderr;
         
         // Read generated PDF
-      const pdfPath = join(tempDir, resolvedMainFile.replace('.tex', '.pdf'));
+        const pdfPath = join(tempDir, resolvedMainFile.replace('.tex', '.pdf'));
         pdfBuffer = await readFile(pdfPath);
         compilationSuccess = true;
 
       } catch (fallbackError: any) {
-        compilationOutput += '\n\nFallback compilation also failed.\n';
-        compilationOutput += fallbackError.message;
+        console.log('Local pdflatex failed, trying external API:', fallbackError.message);
         
-        // Check if it's a missing pdflatex issue
-        if (fallbackError.message.includes('not found') || fallbackError.message.includes('command not found')) {
-          compilationOutput += '\n\n⚠️ LaTeX compiler not found. Please install Docker or TeX Live to compile LaTeX documents.';
-          compilationOutput += '\n\nDocker installation: https://docs.docker.com/get-docker/';
-          compilationOutput += '\nTeX Live installation: https://www.tug.org/texlive/';
+        // Final fallback: Use external LaTeX API (for Vercel/serverless)
+        const externalResult = await compileWithExternalAPI(latex);
+        
+        if (externalResult.success && externalResult.pdf) {
+          return NextResponse.json({
+            success: true,
+            pdf: externalResult.pdf,
+            log: externalResult.log,
+          });
+        } else {
+          compilationOutput = externalResult.log;
         }
       }
     }
@@ -122,8 +194,8 @@ export async function POST(request: NextRequest) {
       });
     } else {
       // Check for common LaTeX errors
-      const logPath = join(tempDir, resolvedMainFile.replace('.tex', '.log'));
       try {
+        const logPath = join(tempDir, resolvedMainFile.replace('.tex', '.log'));
         const logContent = await readFile(logPath, 'utf-8');
         compilationOutput += '\n\n--- LaTeX Log ---\n' + logContent;
       } catch (e) {
@@ -177,10 +249,24 @@ export async function GET() {
           message: 'Local pdflatex is available for LaTeX compilation',
         });
       } catch (pdflatexError) {
+        // Check if external API is reachable
+        try {
+          const testResponse = await fetch('https://latex.ytotech.com/', { method: 'HEAD' });
+          if (testResponse.ok) {
+            return NextResponse.json({
+              status: 'ok',
+              compiler: 'external-api',
+              message: 'Using external LaTeX API for compilation (latex.ytotech.com)',
+            });
+          }
+        } catch (e) {
+          // External API not reachable
+        }
+        
         return NextResponse.json({
           status: 'unavailable',
           compiler: 'none',
-          message: 'No LaTeX compiler found. Please install Docker or TeX Live.',
+          message: 'No LaTeX compiler available.',
         }, { status: 503 });
       }
     }
@@ -191,4 +277,3 @@ export async function GET() {
     }, { status: 500 });
   }
 }
-
