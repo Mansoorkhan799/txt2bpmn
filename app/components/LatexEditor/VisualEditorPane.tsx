@@ -29,11 +29,11 @@ function convertLatexTableToHtml(inner: string): string {
     .replace(/\\cline\{[^}]*\}/g, '')
     .trim();
 
-  // Split rows on "\\" (LaTeX row separator)
+  // Split rows on "\\" (LaTeX row separator) - handle both \\ and escaped \\\\
   const rawRows = body
-    .split(/\\\\/g)
+    .split(/\\\\|\n/)
     .map((r) => r.trim())
-    .filter((r) => r.length > 0 && !r.startsWith('\\'));
+    .filter((r) => r.length > 0 && !r.match(/^\\[a-z]/i));
 
   if (rawRows.length === 0) {
     return '<p><em>[Empty table]</em></p>';
@@ -43,8 +43,15 @@ function convertLatexTableToHtml(inner: string): string {
     row.split('&').map((c) => c.trim())
   );
 
-  const header = rows[0];
-  const bodyRows = rows.slice(1);
+  // Filter out empty rows
+  const validRows = rows.filter(r => r.some(cell => cell.length > 0));
+  
+  if (validRows.length === 0) {
+    return '<p><em>[Empty table]</em></p>';
+  }
+
+  const header = validRows[0];
+  const bodyRows = validRows.slice(1);
 
   const headerHtml =
     '<tr>' + header.map((c) => `<th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;">${c}</th>`).join('') + '</tr>';
@@ -134,10 +141,17 @@ function latexToHtml(latex: string): string {
   // Convert standalone includegraphics
   html = html.replace(/\\includegraphics(\[[^\]]*\])?\{([^}]*)\}/g, '<img src="$2" alt="Image" style="max-width:100%;height:auto;" />');
 
-  // Convert tabular environments into HTML tables
+  // Convert tabular environments into HTML tables (handle various formats)
+  // Match: \begin{tabular}{|l|l|} ... \end{tabular}
   html = html.replace(
     /\\begin\{tabular\}\{[^}]*\}([\s\S]*?)\\end\{tabular\}/g,
     (_match, inner) => convertLatexTableToHtml(inner)
+  );
+
+  // Also try to match tabular without proper escaping (from toolbar insert)
+  html = html.replace(
+    /\\begin\{tabular\}\{([^}]*)\}\s*([\s\S]*?)\\end\{tabular\}/g,
+    (_match, _colspec, inner) => convertLatexTableToHtml(inner)
   );
 
   // Convert longtable environments into HTML tables
