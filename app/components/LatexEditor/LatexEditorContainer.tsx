@@ -587,8 +587,7 @@ E = mc^2
     runVisualCommand(editor => {
       // Insert a basic 2x2 table with header row.
       // Table commands are provided by the Table extension.
-      // @ts-expect-error TipTap command chain types may not include insertTable
-      editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run();
+      (editor.chain().focus() as any).insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run();
     });
   };
 
@@ -597,8 +596,7 @@ E = mc^2
     const url = window.prompt('Enter image URL');
     if (!url) return;
     runVisualCommand(editor => {
-      // @ts-expect-error TipTap command chain types may not include setImage
-      editor.chain().focus().setImage({ src: url }).run();
+      (editor.chain().focus() as any).setImage({ src: url }).run();
     });
   };
 
