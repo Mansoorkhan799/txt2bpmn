@@ -1,0 +1,22 @@
+name,age,credit_score,income,loan_amount,employment_status,existing_loans,status
+John Smith,28,720,50000,100000,Employed,1,Pending
+Sarah Johnson,32,680,75000,150000,Employed,0,Pending
+Michael Brown,24,650,35000,80000,Self-Employed,2,Pending
+Emily Davis,29,750,60000,120000,Employed,1,Pending
+David Wilson,35,800,90000,200000,Employed,0,Pending
+Lisa Anderson,22,580,30000,50000,Student,1,Pending
+Robert Martinez,40,850,110000,250000,Employed,0,Pending
+Jennifer Lee,27,720,55000,100000,Employed,3,Pending
+William Taylor,31,600,45000,90000,Employed,2,Pending
+Amanda White,26,760,70000,130000,Employed,1,Pending
+James Thompson,45,790,95000,180000,Employed,1,Pending
+Maria Garcia,30,640,40000,75000,Self-Employed,2,Pending
+Christopher Lee,33,710,65000,110000,Employed,0,Pending
+Jessica Brown,25,590,32000,60000,Student,1,Pending
+Daniel Kim,38,820,105000,220000,Employed,0,Pending
+Elizabeth Jones,29,670,48000,85000,Employed,2,Pending
+Matthew Davis,42,880,120000,280000,Employed,0,Pending
+Olivia Miller,23,560,28000,45000,Student,2,Pending
+Andrew Wilson,36,740,80000,160000,Employed,1,Pending
+Sophia Moore,31,690,52000,95000,Employed,1,Pending
+

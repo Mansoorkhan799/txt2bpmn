@@ -1,0 +1,161 @@
+@startuml Text-to-BPMN-Process-and-Decision-Engine-ERD
+
+!theme plain
+
+title Text-to-BPMN Process and Decision Engine - Entity Relationship Diagram
+
+' ===========================================================
+' ENTITY RELATIONSHIP DIAGRAM - SYSTEM DATABASE (PlantUML)
+' ===========================================================
+
+entity "User" as user {
+  *userID : ObjectId [PK]
+  --
+  email : string
+  password : string
+  fullName : string
+  roleID : ObjectId [FK]
+  createdAt : datetime
+  updatedAt : datetime
+}
+
+entity "Role" as role {
+  *roleID : ObjectId [PK]
+  --
+  roleName : string
+  description : string
+  defaultRole : boolean
+  createdAt : datetime
+  updatedAt : datetime
+}
+
+entity "Permission" as permission {
+  *permissionID : ObjectId [PK]
+  --
+  permissionName : string
+  description : string
+  createdAt : datetime
+  updatedAt : datetime
+}
+
+entity "UserRole" as userrole {
+  *userRoleID : ObjectId [PK]
+  --
+  userID : ObjectId [FK]
+  roleID : ObjectId [FK]
+  assignedAt : datetime
+}
+
+entity "BPMNProcess" as bpmn {
+  *processID : ObjectId [PK]
+  --
+  processName : string
+  createdBy : ObjectId [FK]
+  xmlData : text
+  version : int
+  status : string
+  createdAt : datetime
+  updatedAt : datetime
+}
+
+entity "Document" as document {
+  *documentID : ObjectId [PK]
+  --
+  processID : ObjectId [FK]
+  documentName : string
+  filePath : string
+  version : int
+  linkedDocumentID : ObjectId
+  createdAt : datetime
+  updatedAt : datetime
+}
+
+entity "Notification" as notification {
+  *notificationID : ObjectId [PK]
+  --
+  userID : ObjectId [FK]
+  message : string
+  type : string
+  status : string
+  createdAt : datetime
+  readAt : datetime
+}
+
+entity "DecisionRule" as decision {
+  *decisionID : ObjectId [PK]
+  --
+  ruleName : string
+  condition : string
+  action : string
+  createdBy : ObjectId [FK]
+  createdAt : datetime
+  updatedAt : datetime
+}
+
+entity "Report" as report {
+  *reportID : ObjectId [PK]
+  --
+  userID : ObjectId [FK]
+  reportTitle : string
+  reportType : string
+  exportFormat : string
+  createdAt : datetime
+}
+
+entity "Workflow" as workflow {
+  *workflowID : ObjectId [PK]
+  --
+  processID : ObjectId [FK]
+  status : string
+  executedBy : ObjectId [FK]
+  startedAt : datetime
+  completedAt : datetime
+}
+
+entity "Chat" as chat {
+  *chatID : ObjectId [PK]
+  --
+  userID : ObjectId [FK]
+  message : string
+  sentAt : datetime
+  status : string
+}
+
+entity "Session" as session {
+  *sessionID : ObjectId [PK]
+  --
+  userID : ObjectId [FK]
+  token : string
+  deviceInfo : string
+  loginTime : datetime
+  logoutTime : datetime
+}
+
+entity "LLMRequest" as llm {
+  *requestID : ObjectId [PK]
+  --
+  userID : ObjectId [FK]
+  inputText : text
+  outputBPMN : text
+  confidenceScore : float
+  createdAt : datetime
+}
+
+' ===========================================================
+' RELATIONSHIPS - VERTICAL LAYOUT FOR A4 PAPER
+' ===========================================================
+
+user ||--o{ userrole : "has"
+role ||--o{ userrole : "assigned to"
+role ||--o{ permission : "grants"
+user ||--o{ bpmn : "creates"
+bpmn ||--o{ document : "linked with"
+user ||--o{ notification : "receives"
+user ||--o{ decision : "defines"
+user ||--o{ report : "generates"
+bpmn ||--o{ workflow : "executes"
+user ||--o{ chat : "sends"
+user ||--o{ session : "manages"
+user ||--o{ llm : "requests"
+
+@enduml
