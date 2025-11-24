@@ -18,6 +18,46 @@ interface VisualEditorPaneProps {
   onEditorReady?: (editor: Editor | null) => void;
 }
 
+// Helper function to convert LaTeX table body to HTML table
+function convertLatexTableToHtml(inner: string): string {
+  // Remove booktabs rules, hline, and collapse whitespace
+  let body = String(inner)
+    .replace(/\\toprule/g, '')
+    .replace(/\\midrule/g, '')
+    .replace(/\\bottomrule/g, '')
+    .replace(/\\hline/g, '')
+    .replace(/\\cline\{[^}]*\}/g, '')
+    .trim();
+
+  // Split rows on "\\" (LaTeX row separator)
+  const rawRows = body
+    .split(/\\\\/g)
+    .map((r) => r.trim())
+    .filter((r) => r.length > 0 && !r.startsWith('\\'));
+
+  if (rawRows.length === 0) {
+    return '<p><em>[Empty table]</em></p>';
+  }
+
+  const rows: string[][] = rawRows.map((row) =>
+    row.split('&').map((c) => c.trim())
+  );
+
+  const header = rows[0];
+  const bodyRows = rows.slice(1);
+
+  const headerHtml =
+    '<tr>' + header.map((c) => `<th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;">${c}</th>`).join('') + '</tr>';
+  const bodyHtml = bodyRows
+    .map(
+      (r) =>
+        '<tr>' + r.map((c) => `<td style="border:1px solid #ccc;padding:8px;">${c}</td>`).join('') + '</tr>'
+    )
+    .join('');
+
+  return `<table style="border-collapse:collapse;width:100%;margin:1em 0;"><thead>${headerHtml}</thead><tbody>${bodyHtml}</tbody></table>`;
+}
+
 // Function to convert LaTeX to HTML (simplified version)
 function latexToHtml(latex: string): string {
   let html = latex;
@@ -27,7 +67,10 @@ function latexToHtml(latex: string): string {
 
   // Convert document structure
   html = html.replace(/\\documentclass\{[^}]*\}/g, '');
-  html = html.replace(/\\usepackage\{[^}]*\}/g, '');
+  html = html.replace(/\\usepackage(\[[^\]]*\])?\{[^}]*\}/g, '');
+  html = html.replace(/\\label\{[^}]*\}/g, '');
+  html = html.replace(/\\caption\{([^}]*)\}/g, '<p><em>$1</em></p>');
+  
   // Title centered, big heading
   html = html.replace(/\\title\{([^}]*)\}/g, '<h1 style="text-align:center;">$1</h1>');
   // Author shown as plain name under the title (no "By")
@@ -42,68 +85,78 @@ function latexToHtml(latex: string): string {
   html = html.replace(/\\end\{document\}/g, '');
   
   // Convert sections
-  html = html.replace(/\\section\{([^}]*)\}/g, '<h2>$1</h2>');
-  html = html.replace(/\\subsection\{([^}]*)\}/g, '<h3>$1</h3>');
-  html = html.replace(/\\subsubsection\{([^}]*)\}/g, '<h4>$1</h4>');
+  html = html.replace(/\\section\*?\{([^}]*)\}/g, '<h2>$1</h2>');
+  html = html.replace(/\\subsection\*?\{([^}]*)\}/g, '<h3>$1</h3>');
+  html = html.replace(/\\subsubsection\*?\{([^}]*)\}/g, '<h4>$1</h4>');
   
   // Convert text formatting
   html = html.replace(/\\textbf\{([^}]*)\}/g, '<strong>$1</strong>');
   html = html.replace(/\\textit\{([^}]*)\}/g, '<em>$1</em>');
   html = html.replace(/\\underline\{([^}]*)\}/g, '<u>$1</u>');
+  html = html.replace(/\\emph\{([^}]*)\}/g, '<em>$1</em>');
   
   // Convert lists
   html = html.replace(/\\begin\{itemize\}/g, '<ul>');
   html = html.replace(/\\end\{itemize\}/g, '</ul>');
   html = html.replace(/\\begin\{enumerate\}/g, '<ol>');
   html = html.replace(/\\end\{enumerate\}/g, '</ol>');
-  html = html.replace(/\\item/g, '<li>');
+  html = html.replace(/\\item\s*/g, '<li>');
   
-  // Convert math (simplified - display clean content without "[Math: ...]" label)
-  html = html.replace(/\\\[([^\]]*)\\\]/g, '<p style="text-align:center;"><em>$1</em></p>');
-  html = html.replace(/\\\(([^\)]*)\\\)/g, '<em>$1</em>');
+  // Convert display math \[ ... \]
+  html = html.replace(/\\\[([\s\S]*?)\\\]/g, (_match, expr) => {
+    const cleanExpr = expr.trim();
+    return `<p style="text-align:center;font-style:italic;font-size:1.1em;margin:1em 0;padding:0.5em;background:#f9f9f9;border-radius:4px;">${cleanExpr}</p>`;
+  });
+  
+  // Convert inline math \( ... \)
+  html = html.replace(/\\\(([\s\S]*?)\\\)/g, '<em>$1</em>');
+  
+  // Convert $ ... $ inline math
+  html = html.replace(/\$([^$]+)\$/g, '<em>$1</em>');
 
-  // Convert simple longtable environments into HTML tables so the Visual Editor
-  // shows editable tables instead of raw LaTeX code.
-  html = html.replace(
-    // Match \begin{longtable}{<any colspec with possible nested {...}>} ... \end{longtable}
-    /\\begin\{longtable\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{longtable\}/g,
-    (_match, inner) => {
-      // Remove booktabs rules and collapse whitespace
-      let body = String(inner)
-        .replace(/\\toprule/g, '')
-        .replace(/\\midrule/g, '')
-        .replace(/\\bottomrule/g, '')
-        .trim();
-
-      // Split rows on "\\" (LaTeX row separator)
-      const rawRows = body
-        .split(/\\\\/g)
-        .map((r) => r.trim())
-        .filter((r) => r.length > 0);
-
-      if (rawRows.length === 0) {
-        return '';
-      }
-
-      const rows: string[][] = rawRows.map((row) =>
-        row.split('&').map((c) => c.trim())
-      );
-
-      const header = rows[0];
-      const bodyRows = rows.slice(1);
-
-      const headerHtml =
-        '<tr>' + header.map((c) => `<th>${c}</th>`).join('') + '</tr>';
-      const bodyHtml = bodyRows
-        .map(
-          (r) =>
-            '<tr>' + r.map((c) => `<td>${c}</td>`).join('') + '</tr>'
-        )
-        .join('');
-
-      return `<table class="latex-table"><thead>${headerHtml}</thead><tbody>${bodyHtml}</tbody></table>`;
+  // Convert figure environments
+  html = html.replace(/\\begin\{figure\}(\[[^\]]*\])?([\s\S]*?)\\end\{figure\}/g, (_match, _opts, inner) => {
+    // Extract includegraphics
+    const imgMatch = inner.match(/\\includegraphics(\[[^\]]*\])?\{([^}]*)\}/);
+    const captionMatch = inner.match(/\\caption\{([^}]*)\}/);
+    
+    let result = '<div style="text-align:center;margin:1em 0;">';
+    if (imgMatch) {
+      result += `<img src="${imgMatch[2]}" alt="Figure" style="max-width:100%;height:auto;" />`;
     }
+    if (captionMatch) {
+      result += `<p><em>${captionMatch[1]}</em></p>`;
+    }
+    result += '</div>';
+    return result;
+  });
+  
+  // Convert standalone includegraphics
+  html = html.replace(/\\includegraphics(\[[^\]]*\])?\{([^}]*)\}/g, '<img src="$2" alt="Image" style="max-width:100%;height:auto;" />');
+
+  // Convert tabular environments into HTML tables
+  html = html.replace(
+    /\\begin\{tabular\}\{[^}]*\}([\s\S]*?)\\end\{tabular\}/g,
+    (_match, inner) => convertLatexTableToHtml(inner)
   );
+
+  // Convert longtable environments into HTML tables
+  html = html.replace(
+    /\\begin\{longtable\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{longtable\}/g,
+    (_match, inner) => convertLatexTableToHtml(inner)
+  );
+
+  // Convert table environments (wrapper)
+  html = html.replace(/\\begin\{table\}(\[[^\]]*\])?/g, '<div class="table-wrapper">');
+  html = html.replace(/\\end\{table\}/g, '</div>');
+
+  // Convert centering
+  html = html.replace(/\\centering/g, '');
+  html = html.replace(/\\begin\{center\}/g, '<div style="text-align:center;">');
+  html = html.replace(/\\end\{center\}/g, '</div>');
+
+  // Clean up line breaks
+  html = html.replace(/\\\\/g, '<br/>');
   
   // Clean up extra whitespace and newlines
   html = html.replace(/\n\n+/g, '</p><p>');
@@ -117,50 +170,59 @@ function htmlToLatex(html: string): string {
   let latex = html;
   
   // Remove wrapper div
-  latex = latex.replace(/<div>([\s\S]*)<\/div>/, '$1');
+  latex = latex.replace(/<div[^>]*>([\s\S]*)<\/div>/g, '$1');
 
-  // Convert display math paragraphs produced by latexToHtml:
-  //   <p style="text-align:center;"><em>E = mc^2</em></p>
-  // back into LaTeX display math:
-  //   \[ E = mc^2 \]
+  // Convert display math paragraphs produced by latexToHtml
   latex = latex.replace(
-    /<p[^>]*style="[^"]*text-align:center[^"]*"[^>]*>\s*<em>(.*?)<\/em>\s*<\/p>/g,
-    (_match, expr) => `\n\\[\n${expr}\n\\]\n\n`
+    /<p[^>]*style="[^"]*text-align:center[^"]*"[^>]*>([\s\S]*?)<\/p>/g,
+    (_match, content) => {
+      // Check if it's a math expression (contains math-like content)
+      const cleanContent = content.replace(/<[^>]*>/g, '').trim();
+      if (cleanContent && /[=^_]|mc|frac|sqrt|sum|int/.test(cleanContent)) {
+        return `\n\\[\n${cleanContent}\n\\]\n\n`;
+      }
+      return `\n${cleanContent}\n\n`;
+    }
   );
 
   // Convert headings
-  latex = latex.replace(/<h1>(.*?)<\/h1>/g, '\\title{$1}');
-  latex = latex.replace(/<h2>(.*?)<\/h2>/g, '\\section{$1}');
-  latex = latex.replace(/<h3>(.*?)<\/h3>/g, '\\subsection{$1}');
-  latex = latex.replace(/<h4>(.*?)<\/h4>/g, '\\subsubsection{$1}');
+  latex = latex.replace(/<h1[^>]*>(.*?)<\/h1>/g, '\\title{$1}');
+  latex = latex.replace(/<h2[^>]*>(.*?)<\/h2>/g, '\\section{$1}');
+  latex = latex.replace(/<h3[^>]*>(.*?)<\/h3>/g, '\\subsection{$1}');
+  latex = latex.replace(/<h4[^>]*>(.*?)<\/h4>/g, '\\subsubsection{$1}');
   
   // Convert text formatting
   latex = latex.replace(/<strong>(.*?)<\/strong>/g, '\\textbf{$1}');
-  // Treat <em> as either inline math or italic text.
-  // If the content looks "mathy" (contains ^, _, =, or \frac, etc.),
-  // wrap it in inline math delimiters. Otherwise, use \textit{}.
+  latex = latex.replace(/<b>(.*?)<\/b>/g, '\\textbf{$1}');
   latex = latex.replace(/<em>(.*?)<\/em>/g, (_match, inner) => {
     const content = String(inner).trim();
-    if (/[\\^_=]|\\frac/.test(content)) {
+    // Check if it looks like math
+    if (/[=^_]|mc|frac|sqrt/.test(content)) {
       return `\\(${content}\\)`;
     }
-    return `\\\\textit{${content}}`;
+    return `\\textit{${content}}`;
   });
+  latex = latex.replace(/<i>(.*?)<\/i>/g, '\\textit{$1}');
   latex = latex.replace(/<u>(.*?)<\/u>/g, '\\underline{$1}');
   
   // Convert lists
-  latex = latex.replace(/<ul>/g, '\\begin{itemize}');
+  latex = latex.replace(/<ul[^>]*>/g, '\\begin{itemize}');
   latex = latex.replace(/<\/ul>/g, '\\end{itemize}');
-  latex = latex.replace(/<ol>/g, '\\begin{enumerate}');
+  latex = latex.replace(/<ol[^>]*>/g, '\\begin{enumerate}');
   latex = latex.replace(/<\/ol>/g, '\\end{enumerate}');
-  latex = latex.replace(/<li>/g, '\\item ');
-  latex = latex.replace(/<\/li>/g, '');
+  latex = latex.replace(/<li[^>]*>/g, '\\item ');
+  latex = latex.replace(/<\/li>/g, '\n');
   
   // Convert paragraphs
-  latex = latex.replace(/<p>(.*?)<\/p>/g, '$1\n\n');
+  latex = latex.replace(/<p[^>]*>(.*?)<\/p>/g, '$1\n\n');
+  
+  // Convert line breaks
+  latex = latex.replace(/<br\s*\/?>/g, '\\\\\n');
 
-  // Convert HTML tables (produced by TipTap or latexToHtml) back into
-  // LaTeX longtable environments.
+  // Convert images
+  latex = latex.replace(/<img[^>]*src="([^"]*)"[^>]*>/g, '\\includegraphics[width=0.8\\textwidth]{$1}');
+
+  // Convert HTML tables back to LaTeX tabular
   latex = latex.replace(
     /<table[^>]*>([\s\S]*?)<\/table>/g,
     (_match, inner) => {
@@ -187,21 +249,16 @@ function htmlToLatex(html: string): string {
       }
 
       const colCount = rows[0].length;
-      const colSpec = '@{}' + 'l'.repeat(colCount) + '@{}';
-
-      const header = rows[0];
-      const bodyRows = rows.slice(1);
+      const colSpec = '|' + 'l|'.repeat(colCount);
 
       const lines: string[] = [];
-      lines.push(`\\begin{longtable}{${colSpec}}`);
-      lines.push('\\toprule');
-      lines.push(header.join(' & ') + '\\\\');
-      lines.push('\\midrule');
-      bodyRows.forEach((r) => {
-        lines.push(r.join(' & ') + '\\\\');
+      lines.push(`\\begin{tabular}{${colSpec}}`);
+      lines.push('\\hline');
+      rows.forEach((r, idx) => {
+        lines.push(r.join(' & ') + ' \\\\');
+        lines.push('\\hline');
       });
-      lines.push('\\bottomrule');
-      lines.push('\\end{longtable}');
+      lines.push('\\end{tabular}');
 
       return '\n' + lines.join('\n') + '\n';
     }
@@ -210,8 +267,7 @@ function htmlToLatex(html: string): string {
   // Clean up remaining HTML tags
   latex = latex.replace(/<[^>]*>/g, '');
 
-  // Decode common HTML entities back to plain text so that, for example,
-  // "&amp; Value" becomes "& Value" in the LaTeX source.
+  // Decode common HTML entities
   latex = latex
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
@@ -222,8 +278,7 @@ function htmlToLatex(html: string): string {
 
   const body = latex.trim();
 
-  // Wrap the visual-editor body back into a compilable LaTeX document.
-  // Include packages needed for images and for the generated tables.
+  // Wrap the visual-editor body back into a compilable LaTeX document
   return `\\documentclass{article}
 \\usepackage{graphicx}
 \\usepackage{longtable}
