@@ -65,118 +65,248 @@ function convertLatexTableToHtml(inner: string): string {
   return `<table style="border-collapse:collapse;width:100%;margin:1em 0;"><thead>${headerHtml}</thead><tbody>${bodyHtml}</tbody></table>`;
 }
 
-// Function to convert LaTeX to HTML (simplified version)
+// Function to convert LaTeX to HTML
 function latexToHtml(latex: string): string {
   let html = latex;
   
-  // Remove LaTeX comments (everything after % on a line)
-  html = html.replace(/%.*/g, '');
+  // Remove LaTeX comments (everything after % on a line, but not \%)
+  html = html.replace(/(?<!\\)%.*/g, '');
 
-  // Convert document structure
-  html = html.replace(/\\documentclass\{[^}]*\}/g, '');
-  html = html.replace(/\\usepackage(\[[^\]]*\])?\{[^}]*\}/g, '');
-  html = html.replace(/\\label\{[^}]*\}/g, '');
-  html = html.replace(/\\caption\{([^}]*)\}/g, '<p><em>$1</em></p>');
+  // ============ STRIP PREAMBLE AND COMPLEX COMMANDS ============
   
-  // Title centered, big heading
-  html = html.replace(/\\title\{([^}]*)\}/g, '<h1 style="text-align:center;">$1</h1>');
-  // Author shown as plain name under the title (no "By")
-  html = html.replace(
-    /\\author\{([^}]*)\}/g,
-    '<p style="text-align:center; margin-top:0.25rem;">$1</p>'
-  );
-  // Hide explicit date from the visual view (to match reference screenshot)
-  html = html.replace(/\\date\{[^}]*\}/g, '');
-  html = html.replace(/\\maketitle/g, '');
+  // Remove document class and options
+  html = html.replace(/\\documentclass(\[[^\]]*\])?\{[^}]*\}/g, '');
+  
+  // Remove all \usepackage commands
+  html = html.replace(/\\usepackage(\[[^\]]*\])?\{[^}]*\}/g, '');
+  
+  // Remove \input and \include
+  html = html.replace(/\\(input|include)\{[^}]*\}/g, '');
+  
+  // Remove color definitions
+  html = html.replace(/\\definecolor\{[^}]*\}\{[^}]*\}\{[^}]*\}/g, '');
+  html = html.replace(/\\color\{[^}]*\}/g, '');
+  html = html.replace(/\\textcolor\{[^}]*\}\{([^}]*)\}/g, '$1');
+  html = html.replace(/\\colorbox\{[^}]*\}\{([^}]*)\}/g, '$1');
+  html = html.replace(/\\cellcolor(\[[^\]]*\])?\{[^}]*\}/g, '');
+  html = html.replace(/\\rowcolor(\[[^\]]*\])?\{[^}]*\}/g, '');
+  
+  // Remove page style commands
+  html = html.replace(/\\pagestyle\{[^}]*\}/g, '');
+  html = html.replace(/\\thispagestyle\{[^}]*\}/g, '');
+  html = html.replace(/\\fancypagestyle\{[^}]*\}\{[\s\S]*?\}/g, '');
+  html = html.replace(/\\fancyhead(\[[^\]]*\])?\{[^}]*\}/g, '');
+  html = html.replace(/\\fancyfoot(\[[^\]]*\])?\{[^}]*\}/g, '');
+  html = html.replace(/\\fancyhf\{[^}]*\}/g, '');
+  html = html.replace(/\\lhead\{[^}]*\}/g, '');
+  html = html.replace(/\\rhead\{[^}]*\}/g, '');
+  html = html.replace(/\\chead\{[^}]*\}/g, '');
+  html = html.replace(/\\lfoot\{[^}]*\}/g, '');
+  html = html.replace(/\\rfoot\{[^}]*\}/g, '');
+  html = html.replace(/\\cfoot\{[^}]*\}/g, '');
+  
+  // Remove geometry and layout commands
+  html = html.replace(/\\geometry\{[^}]*\}/g, '');
+  html = html.replace(/\\setlength\{[^}]*\}\{[^}]*\}/g, '');
+  html = html.replace(/\\setcounter\{[^}]*\}\{[^}]*\}/g, '');
+  html = html.replace(/\\addtolength\{[^}]*\}\{[^}]*\}/g, '');
+  
+  // Remove newcommand, renewcommand, def
+  html = html.replace(/\\(new|renew)command\{[^}]*\}(\[[^\]]*\])?\{[\s\S]*?\}/g, '');
+  html = html.replace(/\\def\\[a-zA-Z]+\{[\s\S]*?\}/g, '');
+  
+  // Remove font commands
+  html = html.replace(/\\(tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)\b/g, '');
+  html = html.replace(/\\(rmfamily|sffamily|ttfamily|bfseries|mdseries|itshape|slshape|scshape|upshape)\b/g, '');
+  html = html.replace(/\\fontsize\{[^}]*\}\{[^}]*\}/g, '');
+  html = html.replace(/\\selectfont/g, '');
+  
+  // Remove spacing commands
+  html = html.replace(/\\(vspace|hspace|vskip|hskip|quad|qquad|enspace|thinspace)\*?\{?[^}]*\}?/g, ' ');
+  html = html.replace(/\\(smallskip|medskip|bigskip|newline|linebreak|pagebreak|newpage|clearpage)/g, '');
+  
+  // Remove labels and refs
+  html = html.replace(/\\label\{[^}]*\}/g, '');
+  html = html.replace(/\\ref\{[^}]*\}/g, '[ref]');
+  html = html.replace(/\\pageref\{[^}]*\}/g, '[page]');
+  html = html.replace(/\\cite\{[^}]*\}/g, '[cite]');
+  
+  // Remove hyperref commands
+  html = html.replace(/\\hypersetup\{[\s\S]*?\}/g, '');
+  html = html.replace(/\\href\{[^}]*\}\{([^}]*)\}/g, '$1');
+  html = html.replace(/\\url\{([^}]*)\}/g, '$1');
+  
+  // Remove TOC commands
+  html = html.replace(/\\tableofcontents/g, '');
+  html = html.replace(/\\listoffigures/g, '');
+  html = html.replace(/\\listoftables/g, '');
+  
+  // Remove bibliography
+  html = html.replace(/\\bibliography\{[^}]*\}/g, '');
+  html = html.replace(/\\bibliographystyle\{[^}]*\}/g, '');
+  
+  // Remove rotatebox and similar
+  html = html.replace(/\\rotatebox\{[^}]*\}\{([^}]*)\}/g, '$1');
+  html = html.replace(/\\scalebox\{[^}]*\}\{([^}]*)\}/g, '$1');
+  html = html.replace(/\\resizebox\{[^}]*\}\{[^}]*\}\{([^}]*)\}/g, '$1');
+  
+  // Remove minipage, parbox
+  html = html.replace(/\\begin\{minipage\}(\[[^\]]*\])?\{[^}]*\}/g, '');
+  html = html.replace(/\\end\{minipage\}/g, '');
+  html = html.replace(/\\parbox(\[[^\]]*\])?\{[^}]*\}\{([^}]*)\}/g, '$2');
+  
+  // Remove abstract environment content but keep it
+  html = html.replace(/\\begin\{abstract\}/g, '<div><strong>Abstract</strong><br/>');
+  html = html.replace(/\\end\{abstract\}/g, '</div>');
+  
+  // ============ CONVERT DOCUMENT STRUCTURE ============
+  
   html = html.replace(/\\begin\{document\}/g, '');
   html = html.replace(/\\end\{document\}/g, '');
+  html = html.replace(/\\maketitle/g, '');
   
-  // Convert sections
+  // Title, author, date
+  html = html.replace(/\\title\{([^}]*)\}/g, '<h1 style="text-align:center;margin-bottom:0.5em;">$1</h1>');
+  html = html.replace(/\\author\{([^}]*)\}/g, '<p style="text-align:center;color:#666;">$1</p>');
+  html = html.replace(/\\date\{([^}]*)\}/g, '<p style="text-align:center;color:#888;font-size:0.9em;">$1</p>');
+  
+  // Chapters and sections
+  html = html.replace(/\\chapter\*?\{([^}]*)\}/g, '<h1>$1</h1>');
   html = html.replace(/\\section\*?\{([^}]*)\}/g, '<h2>$1</h2>');
   html = html.replace(/\\subsection\*?\{([^}]*)\}/g, '<h3>$1</h3>');
   html = html.replace(/\\subsubsection\*?\{([^}]*)\}/g, '<h4>$1</h4>');
+  html = html.replace(/\\paragraph\*?\{([^}]*)\}/g, '<h5>$1</h5>');
   
-  // Convert text formatting
+  // ============ CONVERT TEXT FORMATTING ============
+  
   html = html.replace(/\\textbf\{([^}]*)\}/g, '<strong>$1</strong>');
   html = html.replace(/\\textit\{([^}]*)\}/g, '<em>$1</em>');
   html = html.replace(/\\underline\{([^}]*)\}/g, '<u>$1</u>');
   html = html.replace(/\\emph\{([^}]*)\}/g, '<em>$1</em>');
+  html = html.replace(/\\textsf\{([^}]*)\}/g, '$1');
+  html = html.replace(/\\texttt\{([^}]*)\}/g, '<code>$1</code>');
+  html = html.replace(/\\textsc\{([^}]*)\}/g, '<span style="font-variant:small-caps;">$1</span>');
   
-  // Convert lists
+  // ============ CONVERT LISTS ============
+  
   html = html.replace(/\\begin\{itemize\}/g, '<ul>');
   html = html.replace(/\\end\{itemize\}/g, '</ul>');
   html = html.replace(/\\begin\{enumerate\}/g, '<ol>');
   html = html.replace(/\\end\{enumerate\}/g, '</ol>');
+  html = html.replace(/\\begin\{description\}/g, '<dl>');
+  html = html.replace(/\\end\{description\}/g, '</dl>');
+  html = html.replace(/\\item\[([^\]]*)\]/g, '<dt>$1</dt><dd>');
   html = html.replace(/\\item\s*/g, '<li>');
   
-  // Convert display math \[ ... \]
+  // ============ CONVERT MATH ============
+  
+  // Display math \[ ... \]
   html = html.replace(/\\\[([\s\S]*?)\\\]/g, (_match, expr) => {
     const cleanExpr = expr.trim();
-    return `<p style="text-align:center;font-style:italic;font-size:1.1em;margin:1em 0;padding:0.5em;background:#f9f9f9;border-radius:4px;">${cleanExpr}</p>`;
+    return `<div style="text-align:center;font-style:italic;font-size:1.1em;margin:1em 0;padding:0.75em;background:#f5f5f5;border-radius:4px;border-left:3px solid #007bff;">${cleanExpr}</div>`;
   });
   
-  // Convert inline math \( ... \)
-  html = html.replace(/\\\(([\s\S]*?)\\\)/g, '<em>$1</em>');
+  // Equation environment
+  html = html.replace(/\\begin\{equation\*?\}([\s\S]*?)\\end\{equation\*?\}/g, (_match, expr) => {
+    return `<div style="text-align:center;font-style:italic;margin:1em 0;padding:0.75em;background:#f5f5f5;border-radius:4px;">${expr.trim()}</div>`;
+  });
   
-  // Convert $ ... $ inline math
-  html = html.replace(/\$([^$]+)\$/g, '<em>$1</em>');
+  // Inline math \( ... \)
+  html = html.replace(/\\\(([\s\S]*?)\\\)/g, '<em style="background:#f9f9f9;padding:0 4px;border-radius:2px;">$1</em>');
+  
+  // Inline math $ ... $
+  html = html.replace(/\$([^$]+)\$/g, '<em style="background:#f9f9f9;padding:0 4px;border-radius:2px;">$1</em>');
 
-  // Convert figure environments
+  // ============ CONVERT FIGURES ============
+  
   html = html.replace(/\\begin\{figure\}(\[[^\]]*\])?([\s\S]*?)\\end\{figure\}/g, (_match, _opts, inner) => {
-    // Extract includegraphics
     const imgMatch = inner.match(/\\includegraphics(\[[^\]]*\])?\{([^}]*)\}/);
     const captionMatch = inner.match(/\\caption\{([^}]*)\}/);
     
-    let result = '<div style="text-align:center;margin:1em 0;">';
+    let result = '<figure style="text-align:center;margin:1.5em 0;padding:1em;background:#fafafa;border-radius:4px;">';
     if (imgMatch) {
       result += `<img src="${imgMatch[2]}" alt="Figure" style="max-width:100%;height:auto;" />`;
+    } else {
+      result += '<p style="color:#999;">[Image placeholder]</p>';
     }
     if (captionMatch) {
-      result += `<p><em>${captionMatch[1]}</em></p>`;
+      result += `<figcaption style="margin-top:0.5em;font-style:italic;color:#666;">${captionMatch[1]}</figcaption>`;
     }
-    result += '</div>';
+    result += '</figure>';
     return result;
   });
   
-  // Convert standalone includegraphics
-  html = html.replace(/\\includegraphics(\[[^\]]*\])?\{([^}]*)\}/g, '<img src="$2" alt="Image" style="max-width:100%;height:auto;" />');
+  html = html.replace(/\\includegraphics(\[[^\]]*\])?\{([^}]*)\}/g, 
+    '<img src="$2" alt="Image" style="max-width:100%;height:auto;display:block;margin:1em auto;" />');
+  html = html.replace(/\\caption\{([^}]*)\}/g, '<p style="text-align:center;font-style:italic;color:#666;">$1</p>');
 
-  // Convert tabular environments into HTML tables (handle various formats)
-  // Match: \begin{tabular}{|l|l|} ... \end{tabular}
+  // ============ CONVERT TABLES ============
+  
+  // tabular environment
   html = html.replace(
     /\\begin\{tabular\}\{[^}]*\}([\s\S]*?)\\end\{tabular\}/g,
     (_match, inner) => convertLatexTableToHtml(inner)
   );
-
-  // Also try to match tabular without proper escaping (from toolbar insert)
+  
+  // longtable environment
   html = html.replace(
-    /\\begin\{tabular\}\{([^}]*)\}\s*([\s\S]*?)\\end\{tabular\}/g,
-    (_match, _colspec, inner) => convertLatexTableToHtml(inner)
-  );
-
-  // Convert longtable environments into HTML tables
-  html = html.replace(
-    /\\begin\{longtable\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{longtable\}/g,
+    /\\begin\{longtable\}\{[^}]*\}([\s\S]*?)\\end\{longtable\}/g,
     (_match, inner) => convertLatexTableToHtml(inner)
   );
-
-  // Convert table environments (wrapper)
-  html = html.replace(/\\begin\{table\}(\[[^\]]*\])?/g, '<div class="table-wrapper">');
+  
+  // table wrapper
+  html = html.replace(/\\begin\{table\}(\[[^\]]*\])?/g, '<div style="margin:1em 0;">');
   html = html.replace(/\\end\{table\}/g, '</div>');
-
-  // Convert centering
-  html = html.replace(/\\centering/g, '');
+  
+  // ============ CONVERT OTHER ENVIRONMENTS ============
+  
   html = html.replace(/\\begin\{center\}/g, '<div style="text-align:center;">');
   html = html.replace(/\\end\{center\}/g, '</div>');
-
+  html = html.replace(/\\begin\{flushleft\}/g, '<div style="text-align:left;">');
+  html = html.replace(/\\end\{flushleft\}/g, '</div>');
+  html = html.replace(/\\begin\{flushright\}/g, '<div style="text-align:right;">');
+  html = html.replace(/\\end\{flushright\}/g, '</div>');
+  html = html.replace(/\\begin\{quote\}/g, '<blockquote style="margin:1em 2em;padding:0.5em;border-left:3px solid #ccc;">');
+  html = html.replace(/\\end\{quote\}/g, '</blockquote>');
+  html = html.replace(/\\begin\{verbatim\}([\s\S]*?)\\end\{verbatim\}/g, '<pre style="background:#f5f5f5;padding:1em;overflow-x:auto;">$1</pre>');
+  
+  html = html.replace(/\\centering/g, '');
+  
+  // ============ CLEAN UP REMAINING LATEX ============
+  
+  // Remove any remaining \begin{...} and \end{...}
+  html = html.replace(/\\begin\{[^}]*\}(\[[^\]]*\])?/g, '');
+  html = html.replace(/\\end\{[^}]*\}/g, '');
+  
+  // Remove any remaining backslash commands that weren't handled
+  // This catches things like \somecommand{arg} or \somecommand
+  html = html.replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})*/g, '');
+  
   // Clean up line breaks
   html = html.replace(/\\\\/g, '<br/>');
   
-  // Clean up extra whitespace and newlines
+  // Clean up special characters
+  html = html.replace(/\\&/g, '&amp;');
+  html = html.replace(/\\#/g, '#');
+  html = html.replace(/\\%/g, '%');
+  html = html.replace(/\\_/g, '_');
+  html = html.replace(/\\{/g, '{');
+  html = html.replace(/\\}/g, '}');
+  html = html.replace(/\\~/g, '&nbsp;');
+  html = html.replace(/~~/g, '&nbsp;');
+  html = html.replace(/---/g, '—');
+  html = html.replace(/--/g, '–');
+  html = html.replace(/``/g, '"');
+  html = html.replace(/''/g, '"');
+  
+  // Clean up multiple spaces and newlines
+  html = html.replace(/\n\s*\n\s*\n+/g, '</p><p>');
   html = html.replace(/\n\n+/g, '</p><p>');
   html = html.replace(/\n/g, ' ');
+  html = html.replace(/\s+/g, ' ');
   
-  return `<div>${html}</div>`;
+  // Wrap in container
+  return `<div style="font-family: Georgia, 'Times New Roman', serif; line-height: 1.6;">${html}</div>`;
 }
 
 // Function to convert HTML back to LaTeX (simplified version)
