@@ -113,6 +113,9 @@ function convertLatexTableToHtml(inner: string): string {
 
 // Function to convert LaTeX to HTML
 function latexToHtml(latex: string): string {
+  // Store the original structure for later use when converting back
+  storeOriginalStructure(latex);
+  
   let html = latex;
   
   // Remove LaTeX comments (everything after % on a line)
@@ -539,6 +542,25 @@ function latexToHtml(latex: string): string {
   return `<div style="font-family: Georgia, 'Times New Roman', serif; line-height: 1.6;">${titleHtml}${html}</div>`;
 }
 
+// Store the original LaTeX document structure to preserve it during editing
+let originalLatexPreamble = '';
+let originalLatexPostamble = '';
+
+// Function to extract and store the original document structure
+function storeOriginalStructure(latex: string) {
+  // Extract everything before \begin{document}
+  const preambleMatch = latex.match(/^([\s\S]*?\\begin\{document\})/);
+  if (preambleMatch) {
+    originalLatexPreamble = preambleMatch[1];
+  }
+  
+  // Extract everything after \end{document}
+  const postambleMatch = latex.match(/(\\end\{document\}[\s\S]*)$/);
+  if (postambleMatch) {
+    originalLatexPostamble = postambleMatch[1];
+  }
+}
+
 // Function to convert HTML back to LaTeX (simplified version)
 function htmlToLatex(html: string): string {
   let latex = html;
@@ -559,11 +581,11 @@ function htmlToLatex(html: string): string {
     }
   );
 
-  // Convert headings
-  latex = latex.replace(/<h1[^>]*>(.*?)<\/h1>/g, '\\title{$1}');
-  latex = latex.replace(/<h2[^>]*>(.*?)<\/h2>/g, '\\section{$1}');
-  latex = latex.replace(/<h3[^>]*>(.*?)<\/h3>/g, '\\subsection{$1}');
-  latex = latex.replace(/<h4[^>]*>(.*?)<\/h4>/g, '\\subsubsection{$1}');
+  // Convert headings - escape & in titles
+  latex = latex.replace(/<h1[^>]*>(.*?)<\/h1>/g, (_m, t) => `\\section*{${t.replace(/&amp;/g, '\\&')}}`);
+  latex = latex.replace(/<h2[^>]*>(.*?)<\/h2>/g, (_m, t) => `\\section{${t.replace(/&amp;/g, '\\&')}}`);
+  latex = latex.replace(/<h3[^>]*>(.*?)<\/h3>/g, (_m, t) => `\\subsection{${t.replace(/&amp;/g, '\\&')}}`);
+  latex = latex.replace(/<h4[^>]*>(.*?)<\/h4>/g, (_m, t) => `\\subsubsection{${t.replace(/&amp;/g, '\\&')}}`);
   
   // Convert text formatting
   latex = latex.replace(/<strong>(.*?)<\/strong>/g, '\\textbf{$1}');
@@ -641,18 +663,28 @@ function htmlToLatex(html: string): string {
   // Clean up remaining HTML tags
   latex = latex.replace(/<[^>]*>/g, '');
 
-  // Decode common HTML entities
+  // Decode common HTML entities - but escape & for LaTeX (except in tables where it's a column separator)
   latex = latex
-    .replace(/&amp;/g, '&')
+    .replace(/&amp;/g, '\\&')  // Escape & for LaTeX
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/&nbsp;/g, ' ')
+    .replace(/&nbsp;/g, '~')  // Use ~ for non-breaking space in LaTeX
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
+  
+  // But in tables, & should not be escaped (it's the column separator)
+  // The table conversion above already handles this correctly
 
   const body = latex.trim();
 
-  // Wrap the visual-editor body back into a compilable LaTeX document
+  // If we have the original document structure, use it
+  if (originalLatexPreamble) {
+    return `${originalLatexPreamble}
+${body}
+${originalLatexPostamble || '\\end{document}'}`;
+  }
+
+  // Fallback: Wrap the visual-editor body into a compilable LaTeX document
   return `\\documentclass{article}
 \\usepackage{graphicx}
 \\usepackage{longtable}
