@@ -777,10 +777,6 @@ Cell 3 & Cell 4 \\\\
         onModeChange={setMode}
         onCompile={handleCompile}
         compiling={compiling}
-        currentPage={currentPage}
-        totalPages={totalPages}
-        zoom={zoom}
-        onZoomChange={setZoom}
         showLog={showLog}
         onToggleLog={() => setShowLog(!showLog)}
         onBold={handleBold}
@@ -790,7 +786,6 @@ Cell 3 & Cell 4 \\\\
         onInsertTable={handleInsertTable}
         onInsertImage={handleInsertImage}
         onToggleList={handleToggleList}
-        onDownloadPdf={handleDownloadPdf}
       />
 
       {/* Main Content Area */}

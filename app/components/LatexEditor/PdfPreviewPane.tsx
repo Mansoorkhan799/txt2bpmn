@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { Viewer, Worker } from '@react-pdf-viewer/core';
+import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
 import '@react-pdf-viewer/core/lib/styles/index.css';
+import '@react-pdf-viewer/default-layout/lib/styles/index.css';
 
 interface PdfPreviewPaneProps {
   pdfUrl: string | null;
@@ -24,6 +26,8 @@ export default function PdfPreviewPane({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const defaultLayoutPluginInstance = defaultLayoutPlugin();
 
   if (!mounted) {
     return (
@@ -69,6 +73,7 @@ export default function PdfPreviewPane({
           <div style={{ height: '100%' }}>
             <Viewer
               fileUrl={pdfUrl}
+              plugins={[defaultLayoutPluginInstance]}
               defaultScale={zoom / 100}
               onDocumentLoad={(e) => {
                 onTotalPagesChange(e.doc.numPages);
