@@ -264,12 +264,12 @@ function latexToHtml(latex: string): string {
     }
     
     // Build the title page HTML - centered like the PDF
-    // IMPORTANT: Mark with data-display-only so htmlToLatex knows to skip these
+    // These sections are editable - htmlToLatex will extract edits and update the original titlepage
     if (mainTitle || documentNumber || status) {
-      // Header bar (like the running header in PDF)
+      // Header bar (like the running header in PDF) - READ ONLY display
       const fullTitle = mainTitle + (subtitle ? ' ' + subtitle : '');
       const headerHtml = `
-        <div data-display-only="header" style="display:flex;justify-content:space-between;align-items:center;padding:1em 1.5em;background:#f8f9fa;border-bottom:2px solid #e0e0e0;margin-bottom:2em;font-size:0.85em;gap:3em;">
+        <div data-display-only="header" contenteditable="false" style="display:flex;justify-content:space-between;align-items:center;padding:1em 1.5em;background:#f8f9fa;border-bottom:2px solid #e0e0e0;margin-bottom:2em;font-size:0.85em;gap:3em;pointer-events:none;opacity:0.9;">
           <span style="font-weight:bold;color:#1a1a2e;flex-shrink:0;">${fullTitle}</span>
           <span style="color:#333;flex-shrink:0;white-space:nowrap;">
             ${status ? `Status: ${status}` : ''}
@@ -279,19 +279,13 @@ function latexToHtml(latex: string): string {
         </div>
       `;
       
-      // Main title section (centered)
+      // Main title section (centered) - EDITABLE
       const titleSectionHtml = `
-        <div data-display-only="titlepage" style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;margin:0 auto 3em auto;padding:3em 2em;width:100%;">
+        <div data-display-only="titlepage" style="text-align:center;margin:0 auto 3em auto;padding:3em 2em;width:100%;">
           ${mainTitle ? `<h1 style="margin:0;font-size:2em;font-weight:bold;color:#1a1a2e;letter-spacing:0.5px;text-align:center;">${mainTitle}</h1>` : ''}
           ${subtitle ? `<h2 style="margin:0.2em 0 0 0;font-size:1.5em;font-weight:bold;color:#1a1a2e;text-align:center;">${subtitle}</h2>` : ''}
-          ${status || version ? `<p style="margin:1.5em 0 0 0;font-size:1em;color:#333;text-align:center;">
-            ${status ? `Status: ${status}` : ''}
-            ${status && version ? ' &nbsp;&nbsp;&nbsp;&nbsp; ' : ''}
-            ${version ? `Version: ${version}` : ''}
-          </p>` : ''}
-          ${documentNumber ? `<p style="margin:1.5em 0 0 0;font-size:0.95em;color:#333;text-align:center;">
-            Document # ${documentNumber}${classification ? ` &nbsp;&nbsp;|&nbsp;&nbsp; ${classification}` : ''}
-          </p>` : ''}
+          ${status || version ? `<p style="margin:1.5em 0 0 0;font-size:1em;color:#333;text-align:center;">Status: ${status || ''}${status && version ? ' &nbsp;&nbsp;&nbsp;&nbsp; ' : ''}${version ? `Version: ${version}` : ''}</p>` : ''}
+          ${documentNumber ? `<p style="margin:1.5em 0 0 0;font-size:0.95em;color:#333;text-align:center;">Document # ${documentNumber}${classification ? ` | ${classification}` : ''}</p>` : ''}
           ${copyright ? `<p style="margin:1.5em 0 0 0;font-size:0.9em;color:#555;text-align:center;">${copyright}</p>` : ''}
         </div>
       `;
@@ -585,6 +579,142 @@ function latexToHtml(latex: string): string {
   return `<div style="font-family: Georgia, 'Times New Roman', serif; line-height: 1.6;">${titleHtml}${html}</div>`;
 }
 
+// Helper function to extract edited title page values from HTML
+function extractTitlePageEdits(html: string): {
+  mainTitle?: string;
+  subtitle?: string;
+  status?: string;
+  version?: string;
+  documentNumber?: string;
+  classification?: string;
+  copyright?: string;
+} {
+  const result: {
+    mainTitle?: string;
+    subtitle?: string;
+    status?: string;
+    version?: string;
+    documentNumber?: string;
+    classification?: string;
+    copyright?: string;
+  } = {};
+  
+  // Extract from the title section (data-display-only="titlepage")
+  const titleSectionMatch = html.match(/<div[^>]*data-display-only="titlepage"[^>]*>([\s\S]*?)<\/div>/i);
+  if (titleSectionMatch) {
+    const titleContent = titleSectionMatch[1];
+    
+    // Extract main title from h1
+    const h1Match = titleContent.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    if (h1Match) {
+      result.mainTitle = h1Match[1].replace(/<[^>]*>/g, '').trim();
+    }
+    
+    // Extract subtitle from h2
+    const h2Match = titleContent.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
+    if (h2Match) {
+      result.subtitle = h2Match[1].replace(/<[^>]*>/g, '').trim();
+    }
+    
+    // Extract status and version from the first p tag
+    const pTags = titleContent.match(/<p[^>]*>([\s\S]*?)<\/p>/gi) || [];
+    for (const pTag of pTags) {
+      const pContent = pTag.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+      
+      // Check for Status
+      const statusMatch = pContent.match(/Status:\s*(\w+)/i);
+      if (statusMatch) {
+        result.status = statusMatch[1];
+      }
+      
+      // Check for Version
+      const versionMatch = pContent.match(/Version:\s*([\d.]+)/i);
+      if (versionMatch) {
+        result.version = versionMatch[1];
+      }
+      
+      // Check for Document #
+      const docMatch = pContent.match(/Document\s*#\s*([A-Z0-9-]+)/i);
+      if (docMatch) {
+        result.documentNumber = docMatch[1];
+      }
+      
+      // Check for classification
+      if (pContent.includes('Protected')) {
+        result.classification = 'Protected';
+      } else if (pContent.includes('Confidential')) {
+        result.classification = 'Confidential';
+      } else if (pContent.includes('Public')) {
+        result.classification = 'Public';
+      }
+      
+      // Check for Copyright
+      const copyrightMatch = pContent.match(/Copyright\s*©?\s*(\d{4})\s*(?:by\s*)?(.*)/i);
+      if (copyrightMatch) {
+        result.copyright = `Copyright © ${copyrightMatch[1]} by ${copyrightMatch[2].trim()}`;
+      }
+    }
+  }
+  
+  return result;
+}
+
+// Helper function to update titlepage LaTeX with new values
+function updateTitlepageLatex(
+  originalTitlepage: string,
+  edits: ReturnType<typeof extractTitlePageEdits>
+): string {
+  if (!originalTitlepage || Object.keys(edits).length === 0) {
+    return originalTitlepage;
+  }
+  
+  let updated = originalTitlepage;
+  
+  // Update main title (usually in \Huge or prominent text)
+  if (edits.mainTitle) {
+    // Look for the main title pattern and replace
+    // Common patterns: \Huge TITLE or just prominent uppercase text
+    updated = updated.replace(
+      /(\\Huge\s*(?:\\textbf\s*\{)?)[^{}\\]+(\}?)/gi,
+      `$1${edits.mainTitle}$2`
+    );
+  }
+  
+  // Update subtitle if present
+  if (edits.subtitle) {
+    updated = updated.replace(
+      /(\\LARGE\s*(?:\\textbf\s*\{)?)[^{}\\]+(\}?)/gi,
+      `$1${edits.subtitle}$2`
+    );
+  }
+  
+  // Update Status
+  if (edits.status) {
+    updated = updated.replace(
+      /(Status[:\s]*)(Final|Draft|Review|Approved)/gi,
+      `$1${edits.status}`
+    );
+  }
+  
+  // Update Version
+  if (edits.version) {
+    updated = updated.replace(
+      /(Version[:\s]*)([\d.]+)/gi,
+      `$1${edits.version}`
+    );
+  }
+  
+  // Update Document Number
+  if (edits.documentNumber) {
+    updated = updated.replace(
+      /(Document\s*#?\s*:?\s*)([A-Z]+-[A-Z]+-[A-Z]+-\d+-[\d.]+)/gi,
+      `$1${edits.documentNumber}`
+    );
+  }
+  
+  return updated;
+}
+
 // Function to convert HTML back to LaTeX (simplified version)
 // Takes optional original preamble and titlepage to preserve document structure
 function htmlToLatex(
@@ -593,9 +723,23 @@ function htmlToLatex(
 ): string {
   let latex = html;
   
-  // ============ FIRST: Remove display-only sections ============
-  // These are header and title sections we generate for visual display only
-  // They should NOT be converted back to LaTeX
+  // ============ FIRST: Extract any edits from display-only sections ============
+  // Before removing them, check if the user edited the title/header content
+  const titlePageEdits = extractTitlePageEdits(html);
+  
+  // Update the original titlepage with any edits
+  let updatedTitlepage = originalParts?.titlepage || '';
+  if (originalParts?.titlepage && Object.keys(titlePageEdits).length > 0) {
+    updatedTitlepage = updateTitlepageLatex(originalParts.titlepage, titlePageEdits);
+  }
+  
+  // Store the updated titlepage back
+  if (originalParts) {
+    originalParts.titlepage = updatedTitlepage;
+  }
+  
+  // ============ NOW: Remove display-only sections ============
+  // These are header and title sections we generate for visual display
   
   // Remove elements with data-display-only attribute and all their contents
   latex = latex.replace(/<div[^>]*data-display-only="[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
