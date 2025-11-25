@@ -148,21 +148,50 @@ function latexToHtml(latex: string): string {
     let copyright = '';
     let classification = '';
     
-    // Look for IMDT in the content and extract the full title
-    // The title is usually: IMDT CAPACITY MANAGEMENT (on one line) and PROCESS (on next)
-    if (cleanedContent.includes('IMDT') && cleanedContent.includes('CAPACITY')) {
-      mainTitle = 'IMDT CAPACITY MANAGEMENT';
-    } else if (cleanedContent.includes('CAPACITY') && cleanedContent.includes('MANAGEMENT')) {
-      mainTitle = 'CAPACITY MANAGEMENT';
+    // Try to extract the actual title from the titlepage content
+    // Look for large/huge text which is typically the title
+    // Pattern: \Huge text or \LARGE text or just prominent text
+    const hugeMatch = cleanedContent.match(/\\Huge\s*\{?([^{}\\]+)\}?/i);
+    const largeMatch = cleanedContent.match(/\\LARGE\s*\{?([^{}\\]+)\}?/i);
+    
+    // Also look for lines that appear to be titles (all caps, prominent)
+    const lines = cleanedContent.split(/\\\\|\n/).map(l => l.trim()).filter(l => l.length > 0);
+    
+    // Find title-like lines (uppercase words, no LaTeX commands)
+    const titleLines: string[] = [];
+    for (const line of lines) {
+      // Clean the line of remaining LaTeX commands
+      let cleanLine = line
+        .replace(/\\[a-zA-Z]+\{[^}]*\}/g, '')
+        .replace(/\\[a-zA-Z]+/g, '')
+        .replace(/[{}]/g, '')
+        .trim();
+      
+      // Check if it looks like a title (mostly uppercase, reasonable length)
+      if (cleanLine.length > 2 && cleanLine.length < 100) {
+        const upperCount = (cleanLine.match(/[A-Z]/g) || []).length;
+        const letterCount = (cleanLine.match(/[a-zA-Z]/g) || []).length;
+        // If more than 50% uppercase and has some letters, it's likely a title
+        if (letterCount > 0 && upperCount / letterCount > 0.5) {
+          titleLines.push(cleanLine);
+        }
+      }
     }
     
-    // Check for PROCESS as subtitle or part of title
-    if (cleanedContent.includes('PROCESS')) {
-      if (mainTitle) {
-        subtitle = 'PROCESS';
-      } else {
-        mainTitle = 'PROCESS';
+    // Use the first title-like line as main title, second as subtitle
+    if (titleLines.length > 0) {
+      mainTitle = titleLines[0];
+      if (titleLines.length > 1 && titleLines[1] !== titleLines[0]) {
+        subtitle = titleLines[1];
       }
+    }
+    
+    // Fallback: Try to extract from \Huge or \LARGE
+    if (!mainTitle && hugeMatch) {
+      mainTitle = hugeMatch[1].trim();
+    }
+    if (!mainTitle && largeMatch) {
+      mainTitle = largeMatch[1].trim();
     }
     
     // Look for Status - handle various formats
