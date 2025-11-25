@@ -10,7 +10,7 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import Image from '@tiptap/extension-image';
 import Link from '@tiptap/extension-link';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 
 interface VisualEditorPaneProps {
   content: string;
@@ -20,6 +20,7 @@ interface VisualEditorPaneProps {
 
 // Store the original LaTeX content to preserve structure
 let originalLatexContent = '';
+let originalPreamble = '';
 
 // Helper function to convert LaTeX table body to HTML table
 function convertLatexTableToHtml(inner: string): string {
@@ -104,6 +105,12 @@ function latexToHtml(latex: string): string {
   // Store original for later use
   originalLatexContent = latex;
   
+  // Extract and store preamble separately
+  const preambleMatch = latex.match(/^([\s\S]*?)\\begin\{document\}/);
+  if (preambleMatch) {
+    originalPreamble = preambleMatch[1];
+  }
+  
   let html = latex;
   
   // Replace \& with placeholder to avoid confusion with table separator
@@ -113,7 +120,6 @@ function latexToHtml(latex: string): string {
   html = html.replace(/%.*/g, '');
   
   // === PREAMBLE: Convert to a visible header ===
-  const preambleMatch = html.match(/^([\s\S]*?)\\begin\{document\}/);
   let preambleHtml = '';
   if (preambleMatch) {
     const preamble = preambleMatch[1];
@@ -268,13 +274,17 @@ function latexToHtml(latex: string): string {
   return `<div style="font-family: Georgia, 'Times New Roman', serif; line-height: 1.7; color: #333;">${preambleHtml}${html}</div>`;
 }
 
-// Extract preamble from original LaTeX for reuse
-function extractPreamble(latex: string): string {
-  const match = latex.match(/^([\s\S]*?)\\begin\{document\}/);
-  if (match) {
-    return match[1];
+// Function to convert HTML back to LaTeX
+// This is a simplified version that returns the original LaTeX to avoid corruption
+function htmlToLatex(_html: string): string {
+  // For now, just return the original LaTeX content to avoid compilation errors
+  // The Visual Editor is primarily for viewing, not editing
+  // If you need to edit, use the Code Editor
+  if (originalLatexContent && originalLatexContent.includes('\\documentclass')) {
+    return originalLatexContent;
   }
-  // Default preamble if none found
+  
+  // Fallback: return a minimal valid document
   return `\\documentclass{article}
 \\usepackage{graphicx}
 \\usepackage{longtable}
@@ -282,157 +292,18 @@ function extractPreamble(latex: string): string {
 \\usepackage{array}
 \\usepackage{hyperref}
 
-`;
-}
+\\begin{document}
 
-// Function to convert HTML back to LaTeX - properly converts edits
-function htmlToLatex(html: string): string {
-  let latex = html;
-  
-  // Remove the Document Setup info box (it's just for display)
-  latex = latex.replace(/<div[^>]*>📄 Document Setup[\s\S]*?<\/div>\s*<\/div>/gi, '');
-  
-  // Remove the Title Page wrapper but keep content
-  latex = latex.replace(/<div[^>]*>📋 TITLE PAGE<\/div>/gi, '');
-  
-  // Remove wrapper divs but keep content
-  latex = latex.replace(/<div[^>]*style="[^"]*font-family[^"]*"[^>]*>([\s\S]*)<\/div>$/gi, '$1');
-  
-  // Convert title page content
-  latex = latex.replace(/<div[^>]*style="[^"]*border[^"]*2px solid[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, (_match, inner) => {
-    // This is the title page - convert it back
-    let titleContent = inner;
-    titleContent = titleContent.replace(/<hr[^>]*>/gi, '\\rule{\\textwidth}{0.5pt}');
-    titleContent = titleContent.replace(/<span[^>]*font-size:\s*2em[^>]*>([\s\S]*?)<\/span>/gi, '{\\Huge $1}');
-    titleContent = titleContent.replace(/<span[^>]*font-size:\s*1\.5em[^>]*>([\s\S]*?)<\/span>/gi, '{\\LARGE $1}');
-    titleContent = titleContent.replace(/<span[^>]*font-size:\s*1\.2em[^>]*>([\s\S]*?)<\/span>/gi, '{\\Large $1}');
-    return `\\begin{titlepage}
-\\centering
-${titleContent}
-\\end{titlepage}`;
-  });
-  
-  // Convert headings
-  latex = latex.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '\n\\section*{$1}\n');
-  latex = latex.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n\\section{$1}\n');
-  latex = latex.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n\\subsection{$1}\n');
-  latex = latex.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '\n\\subsubsection{$1}\n');
-  latex = latex.replace(/<h5[^>]*>(.*?)<\/h5>/gi, '\n\\paragraph{$1}\n');
-  
-  // Convert text formatting
-  latex = latex.replace(/<strong>(.*?)<\/strong>/gi, '\\textbf{$1}');
-  latex = latex.replace(/<b>(.*?)<\/b>/gi, '\\textbf{$1}');
-  latex = latex.replace(/<em>(.*?)<\/em>/gi, '\\textit{$1}');
-  latex = latex.replace(/<i>(.*?)<\/i>/gi, '\\textit{$1}');
-  latex = latex.replace(/<u>(.*?)<\/u>/gi, '\\underline{$1}');
-  latex = latex.replace(/<code[^>]*>(.*?)<\/code>/gi, '\\texttt{$1}');
-  
-  // Convert blockquotes
-  latex = latex.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, '\\begin{quote}\n$1\n\\end{quote}');
-  
-  // Convert lists
-  latex = latex.replace(/<ul[^>]*>/gi, '\n\\begin{itemize}\n');
-  latex = latex.replace(/<\/ul>/gi, '\\end{itemize}\n');
-  latex = latex.replace(/<ol[^>]*>/gi, '\n\\begin{enumerate}\n');
-  latex = latex.replace(/<\/ol>/gi, '\\end{enumerate}\n');
-  latex = latex.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '\\item $1\n');
-  
-  // Convert figures
-  latex = latex.replace(/<figure[^>]*>[\s\S]*?\[Image:\s*([^\]]*)\][\s\S]*?<figcaption[^>]*>([\s\S]*?)<\/figcaption>[\s\S]*?<\/figure>/gi, 
-    '\\begin{figure}[h]\n\\centering\n\\includegraphics[width=0.8\\textwidth]{$1}\n\\caption{$2}\n\\end{figure}');
-  latex = latex.replace(/<figure[^>]*>[\s\S]*?\[Image:\s*([^\]]*)\][\s\S]*?<\/figure>/gi, 
-    '\\begin{figure}[h]\n\\centering\n\\includegraphics[width=0.8\\textwidth]{$1}\n\\end{figure}');
-  latex = latex.replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, '');
-  
-  // Convert tables
-  latex = latex.replace(/<table[^>]*>([\s\S]*?)<\/table>/gi, (_match, inner) => {
-    const rows: string[][] = [];
-    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-    let rowMatch;
-    while ((rowMatch = rowRegex.exec(inner)) !== null) {
-      const cellsHtml = rowMatch[1];
-      const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
-      const cells: string[] = [];
-      let cellMatch;
-      while ((cellMatch = cellRegex.exec(cellsHtml)) !== null) {
-        let cellContent = cellMatch[1].replace(/<[^>]*>/g, '').trim();
-        // Escape & in cell content
-        cellContent = cellContent.replace(/&(?!amp;|lt;|gt;|nbsp;)/g, '\\&');
-        cells.push(cellContent);
-      }
-      if (cells.length > 0) rows.push(cells);
-    }
-    if (rows.length === 0) return '';
-    const colCount = Math.max(...rows.map(r => r.length));
-    const colSpec = '|' + 'l|'.repeat(colCount);
-    const lines = [`\n\\begin{tabular}{${colSpec}}`, '\\hline'];
-    rows.forEach((r) => {
-      // Pad row to have correct number of columns
-      while (r.length < colCount) r.push('');
-      lines.push(r.join(' & ') + ' \\\\');
-      lines.push('\\hline');
-    });
-    lines.push('\\end{tabular}\n');
-    return lines.join('\n');
-  });
-  
-  // Convert math blocks
-  latex = latex.replace(/<div[^>]*style="[^"]*text-align:\s*center[^"]*border-left:\s*3px solid[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '\n\\[\n$1\n\\]\n');
-  latex = latex.replace(/<div[^>]*style="[^"]*text-align:\s*center[^"]*font-style:\s*italic[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '\n\\[\n$1\n\\]\n');
-  latex = latex.replace(/<span[^>]*style="[^"]*font-style:\s*italic[^"]*background[^"]*"[^>]*>([\s\S]*?)<\/span>/gi, '$$$1$$');
-  
-  // Convert paragraphs and breaks
-  latex = latex.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n\n');
-  latex = latex.replace(/<br\s*\/?>/gi, '\\\\\n');
-  
-  // Convert centered divs
-  latex = latex.replace(/<div[^>]*style="[^"]*text-align:\s*center[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '\\begin{center}\n$1\n\\end{center}');
-  
-  // Remove remaining divs but keep content
-  latex = latex.replace(/<div[^>]*>([\s\S]*?)<\/div>/gi, '$1');
-  
-  // Remove placeholder text
-  latex = latex.replace(/\[Table of Contents\]/gi, '\\tableofcontents');
-  latex = latex.replace(/\[List of Figures\]/gi, '\\listoffigures');
-  latex = latex.replace(/\[List of Tables\]/gi, '\\listoftables');
-  latex = latex.replace(/\[Figure placeholder\]/gi, '');
-  latex = latex.replace(/\[Logo\]/gi, '');
-  
-  // Clean up remaining HTML tags
-  latex = latex.replace(/<[^>]*>/g, '');
-  
-  // Convert HTML entities
-  latex = latex.replace(/&amp;/g, '\\&');
-  latex = latex.replace(/&lt;/g, '<');
-  latex = latex.replace(/&gt;/g, '>');
-  latex = latex.replace(/&nbsp;/g, '~');
-  latex = latex.replace(/&quot;/g, '"');
-  latex = latex.replace(/&#39;/g, "'");
-  latex = latex.replace(/©/g, '\\copyright{}');
-  latex = latex.replace(/—/g, '---');
-  latex = latex.replace(/–/g, '--');
-  
-  // Clean up extra whitespace
-  latex = latex.replace(/\n{3,}/g, '\n\n');
-  
-  const body = latex.trim();
-  
-  // Use original preamble if available, otherwise use default
-  const preamble = originalLatexContent ? extractPreamble(originalLatexContent) : extractPreamble('');
-  
-  return `${preamble}\\begin{document}
-
-${body}
+% Edit in Code Editor for best results
 
 \\end{document}`;
 }
 
 export default function VisualEditorPane({
   content,
-  onChange,
+  onChange: _onChange, // Visual Editor is read-only for now
   onEditorReady,
 }: VisualEditorPaneProps) {
-  const lastLatexFromEditorRef = useRef<string | null>(null);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -454,11 +325,10 @@ export default function VisualEditorPane({
       }),
     ],
     content: latexToHtml(content),
-    onUpdate: ({ editor }) => {
-      const html = editor.getHTML();
-      const latex = htmlToLatex(html);
-      lastLatexFromEditorRef.current = latex;
-      onChange(latex);
+    onUpdate: () => {
+      // Visual Editor is read-only for now to prevent compilation errors
+      // All edits should be done in the Code Editor
+      // The original LaTeX content is preserved
     },
     editorProps: {
       attributes: {
@@ -473,22 +343,22 @@ export default function VisualEditorPane({
     }
   }, [editor, onEditorReady]);
 
+  // Update editor content when content prop changes (from code editor)
   useEffect(() => {
     if (editor && content) {
-      if (lastLatexFromEditorRef.current === content) {
-        return;
+      // Store the original content
+      originalLatexContent = content;
+      
+      // Store the preamble from incoming content
+      const preambleMatch = content.match(/^([\s\S]*?)\\begin\{document\}/);
+      if (preambleMatch) {
+        originalPreamble = preambleMatch[1];
       }
+      
       const newHtml = latexToHtml(content);
       editor.commands.setContent(newHtml);
     }
   }, [content, editor]);
-
-  useEffect(() => {
-    if (editor && content) {
-      const newHtml = latexToHtml(content);
-      editor.commands.setContent(newHtml);
-    }
-  }, [editor]);
 
   if (!editor) {
     return (
