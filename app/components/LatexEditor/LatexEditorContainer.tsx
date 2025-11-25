@@ -803,7 +803,7 @@ Cell 3 & Cell 4 \\\\
         />
 
         {/* Editor Area */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden relative">
           {mode === 'code' ? (
             <CodeEditorPane
               ref={codeEditorRef}
@@ -818,19 +818,23 @@ Cell 3 & Cell 4 \\\\
             />
           )}
           
-          {/* Compilation Log */}
+          {/* Compilation Log - Floating Panel */}
           {showLog && (
-            <div className="h-32 bg-gray-900 text-gray-100 p-3 overflow-y-auto font-mono text-xs border-t border-gray-700">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-semibold">Compilation Log</span>
+            <div className="absolute bottom-4 right-4 w-96 max-h-64 bg-gray-900 text-gray-100 rounded-lg shadow-2xl border border-gray-700 z-50 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+                <span className="font-semibold text-sm">Compilation Log</span>
                 <button
                   onClick={() => setShowLog(false)}
-                  className="text-gray-400 hover:text-white"
+                  className="text-gray-400 hover:text-white transition-colors p-1 hover:bg-gray-700 rounded"
                 >
-                  ✕
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                 </button>
               </div>
-              <pre className="whitespace-pre-wrap">{compilationLog}</pre>
+              <div className="p-3 overflow-y-auto max-h-48 font-mono text-xs">
+                <pre className="whitespace-pre-wrap">{compilationLog || 'No compilation output yet.'}</pre>
+              </div>
             </div>
           )}
         </div>
