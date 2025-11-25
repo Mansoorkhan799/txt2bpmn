@@ -818,13 +818,22 @@ function htmlToLatex(
         let cellMatch: RegExpExecArray | null;
         while ((cellMatch = cellRegex.exec(cellsHtml)) !== null) {
           let cellText = cellMatch[1].replace(/<[^>]*>/g, '').trim();
-          // Escape special LaTeX characters in table cells
+          // Decode HTML entities first
           cellText = cellText
-            .replace(/&amp;/g, '\\&')
-            .replace(/&/g, '\\&')
-            .replace(/#/g, '\\#')
-            .replace(/%/g, '\\%')
-            .replace(/_/g, '\\_');
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&nbsp;/g, ' ');
+          // Then escape for LaTeX (only if not already escaped)
+          if (!cellText.includes('\\&')) {
+            cellText = cellText.replace(/&/g, '\\&');
+          }
+          if (!cellText.includes('\\#')) {
+            cellText = cellText.replace(/#/g, '\\#');
+          }
+          if (!cellText.includes('\\%')) {
+            cellText = cellText.replace(/%/g, '\\%');
+          }
           cells.push(cellText);
         }
         if (cells.length > 0) {
@@ -855,22 +864,37 @@ function htmlToLatex(
   // Clean up remaining HTML tags
   latex = latex.replace(/<[^>]*>/g, '');
 
-  // Decode common HTML entities - but escape them for LaTeX
+  // Decode common HTML entities first (before escaping)
   latex = latex
-    .replace(/&amp;/g, '\\&')  // & must be escaped in LaTeX
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/&nbsp;/g, '~')   // Non-breaking space in LaTeX
+    .replace(/&nbsp;/g, ' ')   // Regular space first, will handle later
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/©/g, '\\copyright{}');  // Copyright symbol
   
-  // Escape special LaTeX characters that aren't already escaped
-  // Must escape: # $ % & _ { } ~ ^ \
-  latex = latex.replace(/(?<!\\)#/g, '\\#');  // Escape # if not already escaped
-  latex = latex.replace(/(?<!\\)%/g, '\\%');  // Escape % if not already escaped
-  latex = latex.replace(/(?<!\\)&(?!amp;)/g, '\\&');  // Escape & if not already escaped
-  latex = latex.replace(/(?<!\\)_/g, '\\_');  // Escape _ if not already escaped
+  // Handle &amp; - convert to & first, then we'll escape it properly
+  latex = latex.replace(/&amp;/g, '&');
+  
+  // Now escape special LaTeX characters that aren't already escaped
+  // IMPORTANT: Check if already escaped (preceded by \) before escaping
+  // Use a function to avoid double-escaping
+  const escapeIfNeeded = (text: string, char: string, escaped: string): string => {
+    // Split by the escaped version to preserve already-escaped chars
+    const parts = text.split(escaped);
+    // In each part, escape unescaped chars
+    const escapedParts = parts.map(part => part.replace(new RegExp(char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), escaped));
+    // Rejoin with the escaped version
+    return escapedParts.join(escaped);
+  };
+  
+  // Escape & -> \& (but not if already \&)
+  latex = escapeIfNeeded(latex, '&', '\\&');
+  // Escape # -> \# (but not if already \#)  
+  latex = escapeIfNeeded(latex, '#', '\\#');
+  // Escape % -> \% (but not if already \%)
+  latex = escapeIfNeeded(latex, '%', '\\%');
+  // Don't escape _ in general as it breaks things like \_ already in the document
 
   const body = latex.trim();
 
