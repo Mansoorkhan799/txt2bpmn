@@ -268,90 +268,160 @@ function latexToHtml(latex: string): string {
   return `<div style="font-family: Georgia, 'Times New Roman', serif; line-height: 1.7; color: #333;">${preambleHtml}${html}</div>`;
 }
 
-// Function to convert HTML back to LaTeX - returns original with modifications
-function htmlToLatex(html: string): string {
-  // If we have the original LaTeX, use it as base
-  // This preserves the document structure
-  if (originalLatexContent) {
-    // For now, return the original - in a full implementation,
-    // we would parse the HTML changes and apply them to the original
-    // This ensures compilation always works
-    return originalLatexContent;
+// Extract preamble from original LaTeX for reuse
+function extractPreamble(latex: string): string {
+  const match = latex.match(/^([\s\S]*?)\\begin\{document\}/);
+  if (match) {
+    return match[1];
   }
-  
-  // Fallback: generate basic LaTeX from HTML
-  let latex = html;
-  
-  // Remove wrapper div
-  latex = latex.replace(/<div[^>]*>([\s\S]*)<\/div>/g, '$1');
-  
-  // Convert headings
-  latex = latex.replace(/<h1[^>]*>(.*?)<\/h1>/g, '\\section*{$1}');
-  latex = latex.replace(/<h2[^>]*>(.*?)<\/h2>/g, '\\section{$1}');
-  latex = latex.replace(/<h3[^>]*>(.*?)<\/h3>/g, '\\subsection{$1}');
-  latex = latex.replace(/<h4[^>]*>(.*?)<\/h4>/g, '\\subsubsection{$1}');
-  
-  // Convert text formatting
-  latex = latex.replace(/<strong>(.*?)<\/strong>/g, '\\textbf{$1}');
-  latex = latex.replace(/<b>(.*?)<\/b>/g, '\\textbf{$1}');
-  latex = latex.replace(/<em>(.*?)<\/em>/g, '\\textit{$1}');
-  latex = latex.replace(/<i>(.*?)<\/i>/g, '\\textit{$1}');
-  latex = latex.replace(/<u>(.*?)<\/u>/g, '\\underline{$1}');
-  latex = latex.replace(/<code[^>]*>(.*?)<\/code>/g, '\\texttt{$1}');
-  
-  // Convert lists
-  latex = latex.replace(/<ul[^>]*>/g, '\\begin{itemize}');
-  latex = latex.replace(/<\/ul>/g, '\\end{itemize}');
-  latex = latex.replace(/<ol[^>]*>/g, '\\begin{enumerate}');
-  latex = latex.replace(/<\/ol>/g, '\\end{enumerate}');
-  latex = latex.replace(/<li[^>]*>/g, '\\item ');
-  latex = latex.replace(/<\/li>/g, '\n');
-  
-  // Convert paragraphs and breaks
-  latex = latex.replace(/<p[^>]*>(.*?)<\/p>/g, '$1\n\n');
-  latex = latex.replace(/<br\s*\/?>/g, '\\\\\n');
-  
-  // Convert tables
-  latex = latex.replace(/<table[^>]*>([\s\S]*?)<\/table>/g, (_match, inner) => {
-    const rows: string[][] = [];
-    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
-    let rowMatch;
-    while ((rowMatch = rowRegex.exec(inner)) !== null) {
-      const cellsHtml = rowMatch[1];
-      const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g;
-      const cells: string[] = [];
-      let cellMatch;
-      while ((cellMatch = cellRegex.exec(cellsHtml)) !== null) {
-        cells.push(cellMatch[1].replace(/<[^>]*>/g, '').trim());
-      }
-      if (cells.length > 0) rows.push(cells);
-    }
-    if (rows.length === 0) return '';
-    const colSpec = '|' + 'l|'.repeat(rows[0].length);
-    const lines = [`\\begin{tabular}{${colSpec}}`, '\\hline'];
-    rows.forEach(r => {
-      lines.push(r.join(' & ') + ' \\\\');
-      lines.push('\\hline');
-    });
-    lines.push('\\end{tabular}');
-    return '\n' + lines.join('\n') + '\n';
-  });
-  
-  // Clean up HTML
-  latex = latex.replace(/<[^>]*>/g, '');
-  latex = latex.replace(/&amp;/g, '\\&');
-  latex = latex.replace(/&lt;/g, '<');
-  latex = latex.replace(/&gt;/g, '>');
-  latex = latex.replace(/&nbsp;/g, '~');
-  
-  const body = latex.trim();
-  
+  // Default preamble if none found
   return `\\documentclass{article}
 \\usepackage{graphicx}
 \\usepackage{longtable}
 \\usepackage{booktabs}
+\\usepackage{array}
+\\usepackage{hyperref}
 
-\\begin{document}
+`;
+}
+
+// Function to convert HTML back to LaTeX - properly converts edits
+function htmlToLatex(html: string): string {
+  let latex = html;
+  
+  // Remove the Document Setup info box (it's just for display)
+  latex = latex.replace(/<div[^>]*>📄 Document Setup[\s\S]*?<\/div>\s*<\/div>/gi, '');
+  
+  // Remove the Title Page wrapper but keep content
+  latex = latex.replace(/<div[^>]*>📋 TITLE PAGE<\/div>/gi, '');
+  
+  // Remove wrapper divs but keep content
+  latex = latex.replace(/<div[^>]*style="[^"]*font-family[^"]*"[^>]*>([\s\S]*)<\/div>$/gi, '$1');
+  
+  // Convert title page content
+  latex = latex.replace(/<div[^>]*style="[^"]*border[^"]*2px solid[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, (_match, inner) => {
+    // This is the title page - convert it back
+    let titleContent = inner;
+    titleContent = titleContent.replace(/<hr[^>]*>/gi, '\\rule{\\textwidth}{0.5pt}');
+    titleContent = titleContent.replace(/<span[^>]*font-size:\s*2em[^>]*>([\s\S]*?)<\/span>/gi, '{\\Huge $1}');
+    titleContent = titleContent.replace(/<span[^>]*font-size:\s*1\.5em[^>]*>([\s\S]*?)<\/span>/gi, '{\\LARGE $1}');
+    titleContent = titleContent.replace(/<span[^>]*font-size:\s*1\.2em[^>]*>([\s\S]*?)<\/span>/gi, '{\\Large $1}');
+    return `\\begin{titlepage}
+\\centering
+${titleContent}
+\\end{titlepage}`;
+  });
+  
+  // Convert headings
+  latex = latex.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '\n\\section*{$1}\n');
+  latex = latex.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n\\section{$1}\n');
+  latex = latex.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n\\subsection{$1}\n');
+  latex = latex.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '\n\\subsubsection{$1}\n');
+  latex = latex.replace(/<h5[^>]*>(.*?)<\/h5>/gi, '\n\\paragraph{$1}\n');
+  
+  // Convert text formatting
+  latex = latex.replace(/<strong>(.*?)<\/strong>/gi, '\\textbf{$1}');
+  latex = latex.replace(/<b>(.*?)<\/b>/gi, '\\textbf{$1}');
+  latex = latex.replace(/<em>(.*?)<\/em>/gi, '\\textit{$1}');
+  latex = latex.replace(/<i>(.*?)<\/i>/gi, '\\textit{$1}');
+  latex = latex.replace(/<u>(.*?)<\/u>/gi, '\\underline{$1}');
+  latex = latex.replace(/<code[^>]*>(.*?)<\/code>/gi, '\\texttt{$1}');
+  
+  // Convert blockquotes
+  latex = latex.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, '\\begin{quote}\n$1\n\\end{quote}');
+  
+  // Convert lists
+  latex = latex.replace(/<ul[^>]*>/gi, '\n\\begin{itemize}\n');
+  latex = latex.replace(/<\/ul>/gi, '\\end{itemize}\n');
+  latex = latex.replace(/<ol[^>]*>/gi, '\n\\begin{enumerate}\n');
+  latex = latex.replace(/<\/ol>/gi, '\\end{enumerate}\n');
+  latex = latex.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '\\item $1\n');
+  
+  // Convert figures
+  latex = latex.replace(/<figure[^>]*>[\s\S]*?\[Image:\s*([^\]]*)\][\s\S]*?<figcaption[^>]*>([\s\S]*?)<\/figcaption>[\s\S]*?<\/figure>/gi, 
+    '\\begin{figure}[h]\n\\centering\n\\includegraphics[width=0.8\\textwidth]{$1}\n\\caption{$2}\n\\end{figure}');
+  latex = latex.replace(/<figure[^>]*>[\s\S]*?\[Image:\s*([^\]]*)\][\s\S]*?<\/figure>/gi, 
+    '\\begin{figure}[h]\n\\centering\n\\includegraphics[width=0.8\\textwidth]{$1}\n\\end{figure}');
+  latex = latex.replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, '');
+  
+  // Convert tables
+  latex = latex.replace(/<table[^>]*>([\s\S]*?)<\/table>/gi, (_match, inner) => {
+    const rows: string[][] = [];
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let rowMatch;
+    while ((rowMatch = rowRegex.exec(inner)) !== null) {
+      const cellsHtml = rowMatch[1];
+      const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+      const cells: string[] = [];
+      let cellMatch;
+      while ((cellMatch = cellRegex.exec(cellsHtml)) !== null) {
+        let cellContent = cellMatch[1].replace(/<[^>]*>/g, '').trim();
+        // Escape & in cell content
+        cellContent = cellContent.replace(/&(?!amp;|lt;|gt;|nbsp;)/g, '\\&');
+        cells.push(cellContent);
+      }
+      if (cells.length > 0) rows.push(cells);
+    }
+    if (rows.length === 0) return '';
+    const colCount = Math.max(...rows.map(r => r.length));
+    const colSpec = '|' + 'l|'.repeat(colCount);
+    const lines = [`\n\\begin{tabular}{${colSpec}}`, '\\hline'];
+    rows.forEach((r) => {
+      // Pad row to have correct number of columns
+      while (r.length < colCount) r.push('');
+      lines.push(r.join(' & ') + ' \\\\');
+      lines.push('\\hline');
+    });
+    lines.push('\\end{tabular}\n');
+    return lines.join('\n');
+  });
+  
+  // Convert math blocks
+  latex = latex.replace(/<div[^>]*style="[^"]*text-align:\s*center[^"]*border-left:\s*3px solid[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '\n\\[\n$1\n\\]\n');
+  latex = latex.replace(/<div[^>]*style="[^"]*text-align:\s*center[^"]*font-style:\s*italic[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '\n\\[\n$1\n\\]\n');
+  latex = latex.replace(/<span[^>]*style="[^"]*font-style:\s*italic[^"]*background[^"]*"[^>]*>([\s\S]*?)<\/span>/gi, '$$$1$$');
+  
+  // Convert paragraphs and breaks
+  latex = latex.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n\n');
+  latex = latex.replace(/<br\s*\/?>/gi, '\\\\\n');
+  
+  // Convert centered divs
+  latex = latex.replace(/<div[^>]*style="[^"]*text-align:\s*center[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '\\begin{center}\n$1\n\\end{center}');
+  
+  // Remove remaining divs but keep content
+  latex = latex.replace(/<div[^>]*>([\s\S]*?)<\/div>/gi, '$1');
+  
+  // Remove placeholder text
+  latex = latex.replace(/\[Table of Contents\]/gi, '\\tableofcontents');
+  latex = latex.replace(/\[List of Figures\]/gi, '\\listoffigures');
+  latex = latex.replace(/\[List of Tables\]/gi, '\\listoftables');
+  latex = latex.replace(/\[Figure placeholder\]/gi, '');
+  latex = latex.replace(/\[Logo\]/gi, '');
+  
+  // Clean up remaining HTML tags
+  latex = latex.replace(/<[^>]*>/g, '');
+  
+  // Convert HTML entities
+  latex = latex.replace(/&amp;/g, '\\&');
+  latex = latex.replace(/&lt;/g, '<');
+  latex = latex.replace(/&gt;/g, '>');
+  latex = latex.replace(/&nbsp;/g, '~');
+  latex = latex.replace(/&quot;/g, '"');
+  latex = latex.replace(/&#39;/g, "'");
+  latex = latex.replace(/©/g, '\\copyright{}');
+  latex = latex.replace(/—/g, '---');
+  latex = latex.replace(/–/g, '--');
+  
+  // Clean up extra whitespace
+  latex = latex.replace(/\n{3,}/g, '\n\n');
+  
+  const body = latex.trim();
+  
+  // Use original preamble if available, otherwise use default
+  const preamble = originalLatexContent ? extractPreamble(originalLatexContent) : extractPreamble('');
+  
+  return `${preamble}\\begin{document}
+
 ${body}
 
 \\end{document}`;
