@@ -148,50 +148,21 @@ function latexToHtml(latex: string): string {
     let copyright = '';
     let classification = '';
     
-    // Try to extract the actual title from the titlepage content
-    // Look for large/huge text which is typically the title
-    // Pattern: \Huge text or \LARGE text or just prominent text
-    const hugeMatch = cleanedContent.match(/\\Huge\s*\{?([^{}\\]+)\}?/i);
-    const largeMatch = cleanedContent.match(/\\LARGE\s*\{?([^{}\\]+)\}?/i);
+    // Look for IMDT in the content and extract the full title
+    // The title is usually: IMDT CAPACITY MANAGEMENT (on one line) and PROCESS (on next)
+    if (cleanedContent.includes('IMDT') && cleanedContent.includes('CAPACITY')) {
+      mainTitle = 'IMDT CAPACITY MANAGEMENT';
+    } else if (cleanedContent.includes('CAPACITY') && cleanedContent.includes('MANAGEMENT')) {
+      mainTitle = 'CAPACITY MANAGEMENT';
+    }
     
-    // Also look for lines that appear to be titles (all caps, prominent)
-    const lines = cleanedContent.split(/\\\\|\n/).map(l => l.trim()).filter(l => l.length > 0);
-    
-    // Find title-like lines (uppercase words, no LaTeX commands)
-    const titleLines: string[] = [];
-    for (const line of lines) {
-      // Clean the line of remaining LaTeX commands
-      let cleanLine = line
-        .replace(/\\[a-zA-Z]+\{[^}]*\}/g, '')
-        .replace(/\\[a-zA-Z]+/g, '')
-        .replace(/[{}]/g, '')
-        .trim();
-      
-      // Check if it looks like a title (mostly uppercase, reasonable length)
-      if (cleanLine.length > 2 && cleanLine.length < 100) {
-        const upperCount = (cleanLine.match(/[A-Z]/g) || []).length;
-        const letterCount = (cleanLine.match(/[a-zA-Z]/g) || []).length;
-        // If more than 50% uppercase and has some letters, it's likely a title
-        if (letterCount > 0 && upperCount / letterCount > 0.5) {
-          titleLines.push(cleanLine);
-        }
+    // Check for PROCESS as subtitle or part of title
+    if (cleanedContent.includes('PROCESS')) {
+      if (mainTitle) {
+        subtitle = 'PROCESS';
+      } else {
+        mainTitle = 'PROCESS';
       }
-    }
-    
-    // Use the first title-like line as main title, second as subtitle
-    if (titleLines.length > 0) {
-      mainTitle = titleLines[0];
-      if (titleLines.length > 1 && titleLines[1] !== titleLines[0]) {
-        subtitle = titleLines[1];
-      }
-    }
-    
-    // Fallback: Try to extract from \Huge or \LARGE
-    if (!mainTitle && hugeMatch) {
-      mainTitle = hugeMatch[1].trim();
-    }
-    if (!mainTitle && largeMatch) {
-      mainTitle = largeMatch[1].trim();
     }
     
     // Look for Status - handle various formats
@@ -264,33 +235,22 @@ function latexToHtml(latex: string): string {
     }
     
     // Build the title page HTML - centered like the PDF
-    // These sections are editable - htmlToLatex will extract edits and update the original titlepage
     if (mainTitle || documentNumber || status) {
-      // Header bar (like the running header in PDF) - READ ONLY display
-      const fullTitle = mainTitle + (subtitle ? ' ' + subtitle : '');
-      const headerHtml = `
-        <div data-display-only="header" contenteditable="false" style="display:flex;justify-content:space-between;align-items:center;padding:1em 1.5em;background:#f8f9fa;border-bottom:2px solid #e0e0e0;margin-bottom:2em;font-size:0.85em;gap:3em;pointer-events:none;opacity:0.9;">
-          <span style="font-weight:bold;color:#1a1a2e;flex-shrink:0;">${fullTitle}</span>
-          <span style="color:#333;flex-shrink:0;white-space:nowrap;">
-            ${status ? `Status: ${status}` : ''}
-            ${status && version ? ' &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ' : ''}
-            ${version ? `Version: ${version}` : ''}
-          </span>
-        </div>
-      `;
-      
-      // Main title section (centered) - EDITABLE
-      const titleSectionHtml = `
-        <div data-titlepage="true" style="text-align:center;margin:0 auto 3em auto;padding:3em 2em;width:100%;">
+      titleHtml = `
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;margin:0 auto 3em auto;padding:3em 2em;width:100%;">
           ${mainTitle ? `<h1 style="margin:0;font-size:2em;font-weight:bold;color:#1a1a2e;letter-spacing:0.5px;text-align:center;">${mainTitle}</h1>` : ''}
           ${subtitle ? `<h2 style="margin:0.2em 0 0 0;font-size:1.5em;font-weight:bold;color:#1a1a2e;text-align:center;">${subtitle}</h2>` : ''}
-          ${status || version ? `<p style="margin:1.5em 0 0 0;font-size:1em;color:#333;text-align:center;">Status: ${status || ''}${status && version ? ' &nbsp;&nbsp;&nbsp;&nbsp; ' : ''}${version ? `Version: ${version}` : ''}</p>` : ''}
-          ${documentNumber ? `<p style="margin:1.5em 0 0 0;font-size:0.95em;color:#333;text-align:center;">Document # ${documentNumber}${classification ? ` | ${classification}` : ''}</p>` : ''}
+          ${status || version ? `<p style="margin:1.5em 0 0 0;font-size:1em;color:#333;text-align:center;">
+            ${status ? `Status: ${status}` : ''}
+            ${status && version ? ' &nbsp;&nbsp;&nbsp;&nbsp; ' : ''}
+            ${version ? `Version: ${version}` : ''}
+          </p>` : ''}
+          ${documentNumber ? `<p style="margin:1.5em 0 0 0;font-size:0.95em;color:#333;text-align:center;">
+            Document # ${documentNumber}${classification ? ` &nbsp;&nbsp;|&nbsp;&nbsp; ${classification}` : ''}
+          </p>` : ''}
           ${copyright ? `<p style="margin:1.5em 0 0 0;font-size:0.9em;color:#555;text-align:center;">${copyright}</p>` : ''}
         </div>
       `;
-      
-      titleHtml = headerHtml + titleSectionHtml;
     }
     
     // Remove the titlepage
@@ -579,180 +539,18 @@ function latexToHtml(latex: string): string {
   return `<div style="font-family: Georgia, 'Times New Roman', serif; line-height: 1.6;">${titleHtml}${html}</div>`;
 }
 
-// Helper to extract titlepage edits from HTML
-function extractTitlepageFromHtml(html: string): {
-  mainTitle?: string;
-  subtitle?: string;
-  status?: string;
-  version?: string;
-  documentNumber?: string;
-  classification?: string;
-  copyright?: string;
-} {
-  const result: {
-    mainTitle?: string;
-    subtitle?: string;
-    status?: string;
-    version?: string;
-    documentNumber?: string;
-    classification?: string;
-    copyright?: string;
-  } = {};
-  
-  // Extract from the titlepage section
-  const titlepageMatch = html.match(/<div[^>]*data-titlepage="true"[^>]*>([\s\S]*?)<\/div>/i);
-  if (titlepageMatch) {
-    const content = titlepageMatch[1];
-    
-    // Extract main title from h1
-    const h1Match = content.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-    if (h1Match) {
-      result.mainTitle = h1Match[1].replace(/<[^>]*>/g, '').trim();
-    }
-    
-    // Extract subtitle from h2
-    const h2Match = content.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
-    if (h2Match) {
-      result.subtitle = h2Match[1].replace(/<[^>]*>/g, '').trim();
-    }
-    
-    // Extract from p tags
-    const pTags = content.match(/<p[^>]*>([\s\S]*?)<\/p>/gi) || [];
-    for (const pTag of pTags) {
-      const pContent = pTag.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
-      
-      const statusMatch = pContent.match(/Status:\s*(\w+)/i);
-      if (statusMatch) result.status = statusMatch[1];
-      
-      const versionMatch = pContent.match(/Version:\s*([\d.]+)/i);
-      if (versionMatch) result.version = versionMatch[1];
-      
-      const docMatch = pContent.match(/Document\s*#\s*([A-Z0-9-]+)/i);
-      if (docMatch) result.documentNumber = docMatch[1];
-      
-      if (pContent.includes('Protected')) result.classification = 'Protected';
-      else if (pContent.includes('Confidential')) result.classification = 'Confidential';
-      
-      const copyrightMatch = pContent.match(/Copyright\s*©?\s*(\d{4})\s*(?:by\s*)?(.*)/i);
-      if (copyrightMatch) {
-        result.copyright = `Copyright © ${copyrightMatch[1]} by ${copyrightMatch[2].trim()}`;
-      }
-    }
-  }
-  
-  return result;
-}
-
-// Helper to update original titlepage LaTeX with new values
-function updateOriginalTitlepage(originalTitlepage: string, edits: ReturnType<typeof extractTitlepageFromHtml>): string {
-  if (!originalTitlepage) return originalTitlepage;
-  
-  let updated = originalTitlepage;
-  
-  // Update main title - find lines with all caps text or \Huge
-  if (edits.mainTitle) {
-    // Try to replace text after \Huge
-    updated = updated.replace(/(\\Huge\s*\\textbf\s*\{)[^}]*(\})/gi, `$1${edits.mainTitle}$2`);
-    updated = updated.replace(/(\\Huge\s*)[A-Z][A-Z\s]+/gi, `$1${edits.mainTitle}`);
-  }
-  
-  // Update subtitle
-  if (edits.subtitle) {
-    updated = updated.replace(/(\\LARGE\s*\\textbf\s*\{)[^}]*(\})/gi, `$1${edits.subtitle}$2`);
-    updated = updated.replace(/(\\LARGE\s*)[A-Z][A-Z\s]+/gi, `$1${edits.subtitle}`);
-  }
-  
-  // Update Status
-  if (edits.status) {
-    updated = updated.replace(/(Status[:\s]*)(Final|Draft|Review|Approved|\w+)/gi, `$1${edits.status}`);
-  }
-  
-  // Update Version
-  if (edits.version) {
-    updated = updated.replace(/(Version[:\s]*)([\d.]+)/gi, `$1${edits.version}`);
-  }
-  
-  // Update Document Number
-  if (edits.documentNumber) {
-    updated = updated.replace(/([A-Z]+-[A-Z]+-[A-Z]+-\d+-[\d.]+)/gi, edits.documentNumber);
-  }
-  
-  return updated;
-}
-
 // Function to convert HTML back to LaTeX (simplified version)
-// Takes optional original preamble and titlepage to preserve document structure
-function htmlToLatex(
-  html: string, 
-  originalParts?: { preamble: string; titlepage: string } | null
-): string {
+function htmlToLatex(html: string): string {
   let latex = html;
   
-  // ============ STEP 1: Extract titlepage edits before removing ============
-  const titlepageEdits = extractTitlepageFromHtml(html);
-  let updatedTitlepage = originalParts?.titlepage || '';
-  if (originalParts?.titlepage && Object.keys(titlepageEdits).length > 0) {
-    updatedTitlepage = updateOriginalTitlepage(originalParts.titlepage, titlepageEdits);
-  }
-  
-  // ============ STEP 2: Remove display-only header section ============
-  // Remove the header bar (display-only)
-  let match;
-  const displayOnlyPattern = /<div[^>]*data-display-only="[^"]*"[^>]*>/gi;
-  while ((match = displayOnlyPattern.exec(latex)) !== null) {
-    const startIdx = match.index;
-    let depth = 1;
-    let idx = startIdx + match[0].length;
-    while (depth > 0 && idx < latex.length) {
-      const openMatch = latex.slice(idx).match(/^<div[^>]*>/i);
-      const closeMatch = latex.slice(idx).match(/^<\/div>/i);
-      if (openMatch) {
-        depth++;
-        idx += openMatch[0].length;
-      } else if (closeMatch) {
-        depth--;
-        idx += closeMatch[0].length;
-      } else {
-        idx++;
-      }
-    }
-    latex = latex.slice(0, startIdx) + latex.slice(idx);
-    displayOnlyPattern.lastIndex = 0;
-  }
-  
-  // ============ STEP 3: Remove titlepage section (we'll use the updated original) ============
-  const titlepagePattern = /<div[^>]*data-titlepage="true"[^>]*>/gi;
-  while ((match = titlepagePattern.exec(latex)) !== null) {
-    const startIdx = match.index;
-    let depth = 1;
-    let idx = startIdx + match[0].length;
-    while (depth > 0 && idx < latex.length) {
-      const openMatch = latex.slice(idx).match(/^<div[^>]*>/i);
-      const closeMatch = latex.slice(idx).match(/^<\/div>/i);
-      if (openMatch) {
-        depth++;
-        idx += openMatch[0].length;
-      } else if (closeMatch) {
-        depth--;
-        idx += closeMatch[0].length;
-      } else {
-        idx++;
-      }
-    }
-    latex = latex.slice(0, startIdx) + latex.slice(idx);
-    titlepagePattern.lastIndex = 0;
-  }
-  
-  // Also remove by pattern - header bar with flex display (backup)
-  latex = latex.replace(/<div[^>]*style="[^"]*display:\s*flex[^"]*justify-content:\s*space-between[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
-  
-  // Remove wrapper div (but keep content)
+  // Remove wrapper div
   latex = latex.replace(/<div[^>]*>([\s\S]*)<\/div>/g, '$1');
 
   // Convert display math paragraphs produced by latexToHtml
   latex = latex.replace(
     /<p[^>]*style="[^"]*text-align:center[^"]*"[^>]*>([\s\S]*?)<\/p>/g,
     (_match, content) => {
+      // Check if it's a math expression (contains math-like content)
       const cleanContent = content.replace(/<[^>]*>/g, '').trim();
       if (cleanContent && /[=^_]|mc|frac|sqrt|sum|int/.test(cleanContent)) {
         return `\n\\[\n${cleanContent}\n\\]\n\n`;
@@ -761,8 +559,8 @@ function htmlToLatex(
     }
   );
 
-  // Convert headings - h1 in body becomes section (not title)
-  latex = latex.replace(/<h1[^>]*>(.*?)<\/h1>/g, '\\section*{$1}');
+  // Convert headings
+  latex = latex.replace(/<h1[^>]*>(.*?)<\/h1>/g, '\\title{$1}');
   latex = latex.replace(/<h2[^>]*>(.*?)<\/h2>/g, '\\section{$1}');
   latex = latex.replace(/<h3[^>]*>(.*?)<\/h3>/g, '\\subsection{$1}');
   latex = latex.replace(/<h4[^>]*>(.*?)<\/h4>/g, '\\subsubsection{$1}');
@@ -812,23 +610,7 @@ function htmlToLatex(
         const cells: string[] = [];
         let cellMatch: RegExpExecArray | null;
         while ((cellMatch = cellRegex.exec(cellsHtml)) !== null) {
-          let cellText = cellMatch[1].replace(/<[^>]*>/g, '').trim();
-          // Decode HTML entities first
-          cellText = cellText
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&nbsp;/g, ' ');
-          // Then escape for LaTeX (only if not already escaped)
-          if (!cellText.includes('\\&')) {
-            cellText = cellText.replace(/&/g, '\\&');
-          }
-          if (!cellText.includes('\\#')) {
-            cellText = cellText.replace(/#/g, '\\#');
-          }
-          if (!cellText.includes('\\%')) {
-            cellText = cellText.replace(/%/g, '\\%');
-          }
+          const cellText = cellMatch[1].replace(/<[^>]*>/g, '').trim();
           cells.push(cellText);
         }
         if (cells.length > 0) {
@@ -859,52 +641,18 @@ function htmlToLatex(
   // Clean up remaining HTML tags
   latex = latex.replace(/<[^>]*>/g, '');
 
-  // Decode common HTML entities first (before escaping)
+  // Decode common HTML entities
   latex = latex
+    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/&nbsp;/g, ' ')   // Regular space first, will handle later
+    .replace(/&nbsp;/g, ' ')
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/©/g, '\\copyright{}');  // Copyright symbol
-  
-  // Handle &amp; - convert to & first, then we'll escape it properly
-  latex = latex.replace(/&amp;/g, '&');
-  
-  // Now escape special LaTeX characters that aren't already escaped
-  // IMPORTANT: Check if already escaped (preceded by \) before escaping
-  // Use a function to avoid double-escaping
-  const escapeIfNeeded = (text: string, char: string, escaped: string): string => {
-    // Split by the escaped version to preserve already-escaped chars
-    const parts = text.split(escaped);
-    // In each part, escape unescaped chars
-    const escapedParts = parts.map(part => part.replace(new RegExp(char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), escaped));
-    // Rejoin with the escaped version
-    return escapedParts.join(escaped);
-  };
-  
-  // Escape & -> \& (but not if already \&)
-  latex = escapeIfNeeded(latex, '&', '\\&');
-  // Escape # -> \# (but not if already \#)  
-  latex = escapeIfNeeded(latex, '#', '\\#');
-  // Escape % -> \% (but not if already \%)
-  latex = escapeIfNeeded(latex, '%', '\\%');
-  // Don't escape _ in general as it breaks things like \_ already in the document
+    .replace(/&#39;/g, "'");
 
   const body = latex.trim();
 
-  // If we have original preamble and titlepage, use them to preserve document structure
-  if (originalParts && originalParts.preamble) {
-    // Use the updated titlepage with any edits applied
-    return `${originalParts.preamble}\\begin{document}
-${updatedTitlepage}
-
-${body}
-
-\\end{document}`;
-  }
-
-  // Fallback: Wrap the visual-editor body back into a basic compilable LaTeX document
+  // Wrap the visual-editor body back into a compilable LaTeX document
   return `\\documentclass{article}
 \\usepackage{graphicx}
 \\usepackage{longtable}
@@ -916,58 +664,14 @@ ${body}
 \\end{document}`;
 }
 
-// Helper to extract preamble and titlepage from original LaTeX
-function extractLatexParts(latex: string): { preamble: string; titlepage: string; body: string } {
-  let preamble = '';
-  let titlepage = '';
-  let body = latex;
-  
-  // Extract everything before \begin{document}
-  const docStartMatch = latex.match(/([\s\S]*?)\\begin\{document\}/);
-  if (docStartMatch) {
-    preamble = docStartMatch[1];
-    body = latex.substring(docStartMatch[0].length);
-  }
-  
-  // Extract titlepage if present
-  const titlepageMatch = body.match(/\\begin\{titlepage\}[\s\S]*?\\end\{titlepage\}/);
-  if (titlepageMatch) {
-    titlepage = titlepageMatch[0];
-    body = body.replace(titlepageMatch[0], '');
-  }
-  
-  // Remove \end{document}
-  body = body.replace(/\\end\{document\}[\s\S]*$/, '').trim();
-  
-  return { preamble, titlepage, body };
-}
-
 export default function VisualEditorPane({
   content,
   onChange,
   onEditorReady,
 }: VisualEditorPaneProps) {
-  // Track the source of the last update to prevent infinite loops
-  const updateSourceRef = useRef<'visual' | 'code' | null>(null);
-  
-  // Store the original preamble and titlepage so we can preserve them
-  const originalPartsRef = useRef<{ preamble: string; titlepage: string } | null>(null);
-  
-  // Track the last content we processed to detect real changes
-  const lastProcessedContentRef = useRef<string>('');
-
-  // Extract and store original parts whenever content changes
-  const updateOriginalParts = (latex: string) => {
-    const parts = extractLatexParts(latex);
-    if (parts.preamble || parts.titlepage) {
-      originalPartsRef.current = { preamble: parts.preamble, titlepage: parts.titlepage };
-    }
-  };
-
-  // Initialize original parts on first render
-  if (!originalPartsRef.current && content) {
-    updateOriginalParts(content);
-  }
+  // Track last LaTeX value that originated from this visual editor so we can
+  // avoid an update loop between onUpdate -> parent state -> useEffect sync.
+  const lastLatexFromEditorRef = useRef<string | null>(null);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -990,28 +694,11 @@ export default function VisualEditorPane({
     ],
     content: latexToHtml(content),
     onUpdate: ({ editor }) => {
-      // Skip if this update was triggered by syncing from code editor
-      if (updateSourceRef.current === 'code') {
-        return;
-      }
-      
-      // Mark this as a visual editor update
-      updateSourceRef.current = 'visual';
-      
       const html = editor.getHTML();
-      // Pass the original parts to preserve document structure
-      const latex = htmlToLatex(html, originalPartsRef.current);
-      
-      // Update our tracking
-      lastProcessedContentRef.current = latex;
-      
-      // Send to parent
+      const latex = htmlToLatex(html);
+      // Remember that this LaTeX came from the visual editor itself
+      lastLatexFromEditorRef.current = latex;
       onChange(latex);
-      
-      // Reset after a microtask to allow the update to propagate
-      Promise.resolve().then(() => {
-        updateSourceRef.current = null;
-      });
     },
     editorProps: {
       attributes: {
@@ -1032,49 +719,25 @@ export default function VisualEditorPane({
 
   // Update editor content when prop changes (from code editor)
   useEffect(() => {
-    if (!editor || !content) return;
-    
-    // Skip if this update came from the visual editor itself
-    if (updateSourceRef.current === 'visual') {
-      return;
+    if (editor && content) {
+      // If the incoming content is exactly what we just emitted from this
+      // visual editor, skip resetting the editor to avoid an infinite loop.
+      if (lastLatexFromEditorRef.current === content) {
+        return;
+      }
+
+      const newHtml = latexToHtml(content);
+      
+      // Always update when content changes from code editor
+      editor.commands.setContent(newHtml);
     }
-
-    // Skip if content hasn't actually changed (compare normalized versions)
-    const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
-    if (normalize(content) === normalize(lastProcessedContentRef.current)) {
-      return;
-    }
-
-    // Mark this as a code editor update
-    updateSourceRef.current = 'code';
-    
-    // Update original parts with the new content from code editor
-    updateOriginalParts(content);
-
-    // Convert and update the visual editor
-    const newHtml = latexToHtml(content);
-    editor.commands.setContent(newHtml);
-    
-    // Update our tracking
-    lastProcessedContentRef.current = content;
-    
-    // Reset after a microtask
-    Promise.resolve().then(() => {
-      updateSourceRef.current = null;
-    });
   }, [content, editor]);
 
   // Force refresh when editor is first ready
   useEffect(() => {
     if (editor && content) {
-      updateSourceRef.current = 'code';
-      updateOriginalParts(content);
       const newHtml = latexToHtml(content);
       editor.commands.setContent(newHtml);
-      lastProcessedContentRef.current = content;
-      Promise.resolve().then(() => {
-        updateSourceRef.current = null;
-      });
     }
   }, [editor]); // Only run when editor becomes available
 
