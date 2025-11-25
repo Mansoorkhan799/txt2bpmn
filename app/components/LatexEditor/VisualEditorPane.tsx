@@ -366,15 +366,20 @@ export default function VisualEditorPane({
         return;
       }
 
-      const currentHtml = editor.getHTML();
       const newHtml = latexToHtml(content);
       
-      // Only update if content is different to avoid cursor jumping
-      if (currentHtml !== newHtml) {
-        editor.commands.setContent(newHtml);
-      }
+      // Always update when content changes from code editor
+      editor.commands.setContent(newHtml);
     }
   }, [content, editor]);
+
+  // Force refresh when editor is first ready
+  useEffect(() => {
+    if (editor && content) {
+      const newHtml = latexToHtml(content);
+      editor.commands.setContent(newHtml);
+    }
+  }, [editor]); // Only run when editor becomes available
 
   if (!editor) {
     return (
