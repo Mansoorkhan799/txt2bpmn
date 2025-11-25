@@ -754,9 +754,11 @@ export default function VisualEditorPane({
   onChange,
   onEditorReady,
 }: VisualEditorPaneProps) {
-  // Track last LaTeX value that originated from this visual editor so we can
-  // avoid an update loop between onUpdate -> parent state -> useEffect sync.
-  const lastLatexFromEditorRef = useRef<string | null>(null);
+  // Track last content we received from parent to detect external changes
+  const lastExternalContentRef = useRef<string>(content);
+  
+  // Track if we're currently making an internal update (to avoid loops)
+  const isInternalUpdateRef = useRef<boolean>(false);
   
   // Store the original preamble and titlepage so we can preserve them
   const originalPartsRef = useRef<{ preamble: string; titlepage: string } | null>(null);
@@ -790,11 +792,17 @@ export default function VisualEditorPane({
     ],
     content: latexToHtml(content),
     onUpdate: ({ editor }) => {
+      // Skip if this update was triggered by external content sync
+      if (isInternalUpdateRef.current) {
+        return;
+      }
+      
       const html = editor.getHTML();
       // Pass the original parts to preserve document structure
       const latex = htmlToLatex(html, originalPartsRef.current);
-      // Remember that this LaTeX came from the visual editor itself
-      lastLatexFromEditorRef.current = latex;
+      
+      // Update the last external content to match what we're sending
+      lastExternalContentRef.current = latex;
       onChange(latex);
     },
     editorProps: {
@@ -817,9 +825,12 @@ export default function VisualEditorPane({
   // Update editor content when prop changes (from code editor)
   useEffect(() => {
     if (editor && content) {
-      // If the incoming content is exactly what we just emitted from this
-      // visual editor, skip resetting the editor to avoid an infinite loop.
-      if (lastLatexFromEditorRef.current === content) {
+      // Check if content actually changed from external source
+      // Compare by normalizing whitespace to avoid false positives
+      const normalizedNew = content.replace(/\s+/g, ' ').trim();
+      const normalizedLast = lastExternalContentRef.current.replace(/\s+/g, ' ').trim();
+      
+      if (normalizedNew === normalizedLast) {
         return;
       }
 
@@ -831,8 +842,16 @@ export default function VisualEditorPane({
 
       const newHtml = latexToHtml(content);
       
-      // Always update when content changes from code editor
+      // Mark as internal update to prevent onUpdate from firing
+      isInternalUpdateRef.current = true;
       editor.commands.setContent(newHtml);
+      // Reset the flag after a short delay to allow the update to complete
+      setTimeout(() => {
+        isInternalUpdateRef.current = false;
+      }, 0);
+      
+      // Update our tracking ref
+      lastExternalContentRef.current = content;
     }
   }, [content, editor]);
 
@@ -840,7 +859,12 @@ export default function VisualEditorPane({
   useEffect(() => {
     if (editor && content) {
       const newHtml = latexToHtml(content);
+      isInternalUpdateRef.current = true;
       editor.commands.setContent(newHtml);
+      setTimeout(() => {
+        isInternalUpdateRef.current = false;
+      }, 0);
+      lastExternalContentRef.current = content;
     }
   }, [editor]); // Only run when editor becomes available
 
