@@ -149,49 +149,56 @@ function latexToHtml(latex: string): string {
     let classification = '';
     
     // Try to extract the actual title from the titlepage content
-    // Look for large/huge text which is typically the title
-    // Pattern: \Huge text or \LARGE text or just prominent text
-    const hugeMatch = cleanedContent.match(/\\Huge\s*\{?([^{}\\]+)\}?/i);
-    const largeMatch = cleanedContent.match(/\\LARGE\s*\{?([^{}\\]+)\}?/i);
+    // First, try to extract from \Huge or \LARGE commands (most reliable)
+    const hugeMatch = titlepageContent.match(/\\Huge\s*(?:\\textbf\s*\{([^}]*)\}|([^\\{}\n]+))/i);
+    const largeMatch = titlepageContent.match(/\\LARGE\s*(?:\\textbf\s*\{([^}]*)\}|([^\\{}\n]+))/i);
     
-    // Also look for lines that appear to be titles (all caps, prominent)
-    const lines = cleanedContent.split(/\\\\|\n/).map(l => l.trim()).filter(l => l.length > 0);
+    if (hugeMatch) {
+      mainTitle = (hugeMatch[1] || hugeMatch[2] || '').trim();
+    }
+    if (largeMatch && !mainTitle) {
+      mainTitle = (largeMatch[1] || largeMatch[2] || '').trim();
+    }
     
-    // Find title-like lines (uppercase words, no LaTeX commands)
-    const titleLines: string[] = [];
-    for (const line of lines) {
-      // Clean the line of remaining LaTeX commands
-      let cleanLine = line
-        .replace(/\\[a-zA-Z]+\{[^}]*\}/g, '')
-        .replace(/\\[a-zA-Z]+/g, '')
-        .replace(/[{}]/g, '')
-        .trim();
+    // If still no title, look for lines that appear to be titles
+    if (!mainTitle) {
+      const lines = cleanedContent.split(/\\\\|\n/).map(l => l.trim()).filter(l => l.length > 0);
       
-      // Check if it looks like a title (mostly uppercase, reasonable length)
-      if (cleanLine.length > 2 && cleanLine.length < 100) {
-        const upperCount = (cleanLine.match(/[A-Z]/g) || []).length;
-        const letterCount = (cleanLine.match(/[a-zA-Z]/g) || []).length;
-        // If more than 50% uppercase and has some letters, it's likely a title
-        if (letterCount > 0 && upperCount / letterCount > 0.5) {
-          titleLines.push(cleanLine);
+      // Find title-like lines (any text that's not a command)
+      const titleLines: string[] = [];
+      for (const line of lines) {
+        // Clean the line of remaining LaTeX commands
+        let cleanLine = line
+          .replace(/\\[a-zA-Z]+\{[^}]*\}/g, '')
+          .replace(/\\[a-zA-Z]+/g, '')
+          .replace(/[{}]/g, '')
+          .trim();
+        
+        // Accept any line with reasonable length as potential title
+        if (cleanLine.length > 2 && cleanLine.length < 100) {
+          // Skip lines that look like metadata (Status:, Version:, etc.)
+          if (!/^(Status|Version|Document|Copyright|Protected|Confidential)/i.test(cleanLine)) {
+            titleLines.push(cleanLine);
+          }
         }
       }
-    }
-    
-    // Use the first title-like line as main title, second as subtitle
-    if (titleLines.length > 0) {
-      mainTitle = titleLines[0];
-      if (titleLines.length > 1 && titleLines[1] !== titleLines[0]) {
-        subtitle = titleLines[1];
+      
+      // Use the first non-metadata line as main title
+      if (titleLines.length > 0) {
+        mainTitle = titleLines[0];
+        // Look for a subtitle (second line that's different)
+        if (titleLines.length > 1 && titleLines[1] !== titleLines[0]) {
+          subtitle = titleLines[1];
+        }
       }
-    }
-    
-    // Fallback: Try to extract from \Huge or \LARGE
-    if (!mainTitle && hugeMatch) {
-      mainTitle = hugeMatch[1].trim();
-    }
-    if (!mainTitle && largeMatch) {
-      mainTitle = largeMatch[1].trim();
+    } else {
+      // If we found main title from \Huge, look for subtitle from \LARGE
+      if (largeMatch && hugeMatch) {
+        const subtitleText = (largeMatch[1] || largeMatch[2] || '').trim();
+        if (subtitleText && subtitleText !== mainTitle) {
+          subtitle = subtitleText;
+        }
+      }
     }
     
     // Look for Status - handle various formats
@@ -1043,9 +1050,9 @@ export default function VisualEditorPane({
       return;
     }
     
-    // Skip if content hasn't actually changed (compare normalized versions)
-    const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
-    if (normalize(content) === normalize(lastProcessedContentRef.current)) {
+    // Check if content actually changed - use exact comparison for reliability
+    // Only skip if the content is exactly the same
+    if (content === lastProcessedContentRef.current) {
       return;
     }
 
