@@ -927,21 +927,26 @@ export default function VisualEditorPane({
   onChange,
   onEditorReady,
 }: VisualEditorPaneProps) {
-  // Track last content we received from parent to detect external changes
-  const lastExternalContentRef = useRef<string>(content);
-  
-  // Track if we're currently making an internal update (to avoid loops)
-  const isInternalUpdateRef = useRef<boolean>(false);
+  // Track the source of the last update to prevent infinite loops
+  const updateSourceRef = useRef<'visual' | 'code' | null>(null);
   
   // Store the original preamble and titlepage so we can preserve them
   const originalPartsRef = useRef<{ preamble: string; titlepage: string } | null>(null);
+  
+  // Track the last content we processed to detect real changes
+  const lastProcessedContentRef = useRef<string>('');
 
-  // Extract and store original parts on initial content
-  if (!originalPartsRef.current && content) {
-    const parts = extractLatexParts(content);
+  // Extract and store original parts whenever content changes
+  const updateOriginalParts = (latex: string) => {
+    const parts = extractLatexParts(latex);
     if (parts.preamble || parts.titlepage) {
       originalPartsRef.current = { preamble: parts.preamble, titlepage: parts.titlepage };
     }
+  };
+
+  // Initialize original parts on first render
+  if (!originalPartsRef.current && content) {
+    updateOriginalParts(content);
   }
   
   const editor = useEditor({
@@ -965,18 +970,28 @@ export default function VisualEditorPane({
     ],
     content: latexToHtml(content),
     onUpdate: ({ editor }) => {
-      // Skip if this update was triggered by external content sync
-      if (isInternalUpdateRef.current) {
+      // Skip if this update was triggered by syncing from code editor
+      if (updateSourceRef.current === 'code') {
         return;
       }
+      
+      // Mark this as a visual editor update
+      updateSourceRef.current = 'visual';
       
       const html = editor.getHTML();
       // Pass the original parts to preserve document structure
       const latex = htmlToLatex(html, originalPartsRef.current);
       
-      // Update the last external content to match what we're sending
-      lastExternalContentRef.current = latex;
+      // Update our tracking
+      lastProcessedContentRef.current = latex;
+      
+      // Send to parent
       onChange(latex);
+      
+      // Reset after a microtask to allow the update to propagate
+      Promise.resolve().then(() => {
+        updateSourceRef.current = null;
+      });
     },
     editorProps: {
       attributes: {
@@ -997,47 +1012,49 @@ export default function VisualEditorPane({
 
   // Update editor content when prop changes (from code editor)
   useEffect(() => {
-    if (editor && content) {
-      // Check if content actually changed from external source
-      // Compare by normalizing whitespace to avoid false positives
-      const normalizedNew = content.replace(/\s+/g, ' ').trim();
-      const normalizedLast = lastExternalContentRef.current.replace(/\s+/g, ' ').trim();
-      
-      if (normalizedNew === normalizedLast) {
-        return;
-      }
-
-      // Update original parts when content changes from code editor
-      const parts = extractLatexParts(content);
-      if (parts.preamble || parts.titlepage) {
-        originalPartsRef.current = { preamble: parts.preamble, titlepage: parts.titlepage };
-      }
-
-      const newHtml = latexToHtml(content);
-      
-      // Mark as internal update to prevent onUpdate from firing
-      isInternalUpdateRef.current = true;
-      editor.commands.setContent(newHtml);
-      // Reset the flag after a short delay to allow the update to complete
-      setTimeout(() => {
-        isInternalUpdateRef.current = false;
-      }, 0);
-      
-      // Update our tracking ref
-      lastExternalContentRef.current = content;
+    if (!editor || !content) return;
+    
+    // Skip if this update came from the visual editor itself
+    if (updateSourceRef.current === 'visual') {
+      return;
     }
+    
+    // Skip if content hasn't actually changed (compare normalized versions)
+    const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+    if (normalize(content) === normalize(lastProcessedContentRef.current)) {
+      return;
+    }
+
+    // Mark this as a code editor update
+    updateSourceRef.current = 'code';
+    
+    // Update original parts with the new content from code editor
+    updateOriginalParts(content);
+
+    // Convert and update the visual editor
+    const newHtml = latexToHtml(content);
+    editor.commands.setContent(newHtml);
+    
+    // Update our tracking
+    lastProcessedContentRef.current = content;
+    
+    // Reset after a microtask
+    Promise.resolve().then(() => {
+      updateSourceRef.current = null;
+    });
   }, [content, editor]);
 
   // Force refresh when editor is first ready
   useEffect(() => {
     if (editor && content) {
+      updateSourceRef.current = 'code';
+      updateOriginalParts(content);
       const newHtml = latexToHtml(content);
-      isInternalUpdateRef.current = true;
       editor.commands.setContent(newHtml);
-      setTimeout(() => {
-        isInternalUpdateRef.current = false;
-      }, 0);
-      lastExternalContentRef.current = content;
+      lastProcessedContentRef.current = content;
+      Promise.resolve().then(() => {
+        updateSourceRef.current = null;
+      });
     }
   }, [editor]); // Only run when editor becomes available
 
